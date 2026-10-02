@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Jelly — Fruit Platter</title>
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+
+    <div class="hud">
+      <div class="hud__panel">
+        <h1>Jelly Platter</h1>
+        <div class="stats">
+          <span><b id="pieces">1</b> <span id="pieces-label">piece</span></span>
+          <span><b id="cuts">0</b> <span id="cuts-label">cuts</span></span>
+        </div>
+        <div class="actions">
+          <button id="btn-wobble" type="button">Wobble!</button>
+          <button id="btn-reset" type="button">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="hint" id="hint">
+      <div><b>Click</b> a piece to cut it in two</div>
+      <div><b>Drag</b> a piece to shove it around</div>
+      <div><b>Drag</b> the plate to orbit &nbsp;·&nbsp; <b>Wheel</b> to zoom</div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

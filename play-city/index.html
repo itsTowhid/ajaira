@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Play City</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+
+    <div class="hud">
+      <div class="hud__top">
+        <div class="badge">
+          <span class="badge__label">Play City</span>
+          <span class="badge__sub">drive around the block</span>
+        </div>
+        <div class="net">
+          <span class="net__dot"></span>
+          <span id="net-value">solo</span>
+        </div>
+      </div>
+
+      <div id="hint" class="hint">
+        <div><b>W A S D</b> / arrows — drive</div>
+        <div><b>Space</b> — brake</div>
+        <div><b>Drag</b> — look around &nbsp;·&nbsp; <b>Wheel</b> — zoom</div>
+        <div><b>C</b> — camera &nbsp;·&nbsp; <b>H</b> — hide help</div>
+        <div><b>multiplayer</b> — other drivers appear automatically</div>
+      </div>
+
+      <div class="hud__bottom">
+        <div class="speedo">
+          <span id="speed" class="speedo__value">000</span>
+          <span class="speedo__unit">km/h</span>
+          <span id="gear" class="speedo__gear">N</span>
+        </div>
+        <div class="hud__right">
+          <div class="smashed">
+            <span id="smashed" class="smashed__value">0</span>
+            <span class="smashed__label">smashed</span>
+          </div>
+          <canvas id="minimap" class="minimap" width="190" height="190"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
