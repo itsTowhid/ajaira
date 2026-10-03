@@ -217,6 +217,13 @@ body {
     display: block;
   }
 
+  /* Lift the bottom HUD (speedo, minimap) clear of the fixed control bar:
+     0.9rem pad + 76px tallest button + 0.9rem pad ≈ 105px, plus the
+     desktop 1.1rem padding and a little breathing room. */
+  .hud {
+    padding-bottom: calc(8.5rem + env(safe-area-inset-bottom));
+  }
+
   .minimap {
     width: 120px;
     height: 120px;
