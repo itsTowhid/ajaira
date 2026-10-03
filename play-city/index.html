@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Play City</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
@@ -26,7 +26,20 @@
         <div><b>Space</b> — brake</div>
         <div><b>Drag</b> — look around &nbsp;·&nbsp; <b>Wheel</b> — zoom</div>
         <div><b>C</b> — camera &nbsp;·&nbsp; <b>H</b> — hide help</div>
+        <div class="hint__touch"><b>Touch</b> — on-screen pedals: steer left, gas right</div>
         <div><b>multiplayer</b> — other drivers appear automatically</div>
+      </div>
+
+      <div class="controls" aria-label="touch driving controls">
+        <div class="controls__steer">
+          <button type="button" class="ctl" id="ctl-left" aria-label="steer left">&#9664;</button>
+          <button type="button" class="ctl" id="ctl-right" aria-label="steer right">&#9654;</button>
+        </div>
+        <div class="controls__drive">
+          <button type="button" class="ctl ctl--brake" id="ctl-brake" aria-label="brake">&#9632;</button>
+          <button type="button" class="ctl ctl--rev" id="ctl-back" aria-label="reverse">&#9660;</button>
+          <button type="button" class="ctl ctl--gas" id="ctl-gas" aria-label="accelerate">&#9650;</button>
+        </div>
       </div>
 
       <div class="hud__bottom">

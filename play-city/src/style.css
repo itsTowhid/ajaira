@@ -200,3 +200,85 @@ body {
   background: rgba(12, 16, 26, 0.55);
   backdrop-filter: blur(6px);
 }
+
+/* --- On-screen touch controls ------------------------------------------ */
+/* Hidden entirely on pointer-fine devices; thumb-sized on touch screens.  */
+
+.controls {
+  display: none;
+}
+
+.hint__touch {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .hint__touch {
+    display: block;
+  }
+
+  .minimap {
+    width: 120px;
+    height: 120px;
+  }
+
+  .controls {
+    position: fixed;
+    inset: auto 0 0 0;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding: 0.9rem 1rem calc(0.9rem + env(safe-area-inset-bottom));
+    pointer-events: none;
+  }
+
+  .controls__steer,
+  .controls__drive {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.65rem;
+    pointer-events: auto;
+  }
+
+  .ctl {
+    width: 64px;
+    height: 64px;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 50%;
+    background: rgba(12, 16, 26, 0.55);
+    backdrop-filter: blur(6px);
+    color: #f4f7ff;
+    font-size: 1.25rem;
+    line-height: 1;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.08s ease, transform 0.08s ease;
+  }
+
+  .ctl:active {
+    background: rgba(255, 212, 94, 0.85);
+    color: #14181f;
+    transform: scale(0.94);
+  }
+
+  .ctl--gas {
+    width: 76px;
+    height: 76px;
+    border-color: rgba(255, 212, 94, 0.5);
+    color: #ffd45e;
+  }
+
+  .ctl--rev {
+    width: 54px;
+    height: 54px;
+    opacity: 0.85;
+  }
+
+  .ctl--brake {
+    width: 54px;
+    height: 54px;
+    opacity: 0.85;
+  }
+}
