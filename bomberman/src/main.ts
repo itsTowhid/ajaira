@@ -5,6 +5,7 @@ import {
   isPillar, generateCrates, COLS, ROWS,
 } from './game/level'
 import { rollPower, makePowerMesh, placePowerMesh, type PowerKind } from './game/powerups'
+import { TouchControls } from './game/touch'
 import { Room, type BombEvent } from './net/room'
 
 const params = new URLSearchParams(location.search)
@@ -56,8 +57,20 @@ scene.fog = new THREE.Fog(0xa9d6e5, 34, 70)
 }
 
 const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 220)
-camera.position.set(0, 14.5, 9.5)
-camera.lookAt(0, 0, -0.3)
+const CAM_DIR = new THREE.Vector3(0, 14.5, 9.5).normalize()
+const CAM_DIST = new THREE.Vector3(0, 14.5, 9.5).length()
+
+/** Pull the camera back on narrow/portrait screens so the arena still fits. */
+function fitCamera() {
+  const aspect = innerWidth / innerHeight
+  camera.aspect = aspect
+  const k = aspect >= 1.3 ? 1 : Math.min(2.1, 1.35 / aspect)
+  camera.position.copy(CAM_DIR).multiplyScalar(CAM_DIST * k)
+  camera.lookAt(0, 0, -0.3)
+  camera.updateProjectionMatrix()
+  renderer.setSize(innerWidth, innerHeight)
+}
+fitCamera()
 
 scene.add(new THREE.HemisphereLight(0xcdeaff, 0x5f7038, 0.95))
 const sun = new THREE.DirectionalLight(0xfff1d0, 2.4)
@@ -126,6 +139,49 @@ addEventListener('keydown', (e) => {
   keys.add(e.code)
 })
 addEventListener('keyup', (e) => keys.delete(e.code))
+addEventListener('blur', () => keys.clear()) // no stuck keys on tab switch
+
+const touch = new TouchControls()
+
+/** Keyboard (WASD or arrows) movement, else joystick if deflected. */
+function moveVec(useArrows: boolean): { dx: number; dz: number } | null {
+  const L = useArrows ? 'ArrowLeft' : 'KeyA'
+  const R = useArrows ? 'ArrowRight' : 'KeyD'
+  const U = useArrows ? 'ArrowUp' : 'KeyW'
+  const D = useArrows ? 'ArrowDown' : 'KeyS'
+  const dx = (keys.has(R) ? 1 : 0) - (keys.has(L) ? 1 : 0)
+  const dz = (keys.has(D) ? 1 : 0) - (keys.has(U) ? 1 : 0)
+  if (dx || dz) {
+    const len = Math.hypot(dx, dz)
+    return { dx: dx / len, dz: dz / len }
+  }
+  if (touch.active) return { dx: touch.vec.x, dz: touch.vec.z }
+  return null
+}
+
+/** WASD + arrows + touch bomb button, all feeding one local fighter. */
+function anyMoveVec(): { dx: number; dz: number } | null {
+  const dx = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) -
+    (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0)
+  const dz = (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) -
+    (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0)
+  if (dx || dz) {
+    const len = Math.hypot(dx, dz)
+    return { dx: dx / len, dz: dz / len }
+  }
+  if (touch.active) return { dx: touch.vec.x, dz: touch.vec.z }
+  return null
+}
+
+function bombPressed(): boolean {
+  if (touch.consumeBomb()) return true
+  return keys.has('Space') || keys.has('Enter')
+}
+
+function clearBombKeys() {
+  keys.delete('Space')
+  keys.delete('Enter')
+}
 
 // ---------- net ----------
 const room = new Room()
@@ -410,36 +466,32 @@ function frame() {
 
   const online = remoteById.size > 0 && !local2P && !botMode
   if (local2P) {
-    const dx = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0)
-    const dz = (keys.has('KeyS') ? 1 : 0) - (keys.has('KeyW') ? 1 : 0)
-    if (dx || dz) move(f1, dx / Math.hypot(dx, dz), dz / Math.hypot(dx, dz), dt)
-    if (keys.has('Space') && cd1 <= 0) { dropBomb(f1); cd1 = 0.3; keys.delete('Space') }
+    const v = moveVec(false)
+    if (v) move(f1, v.dx, v.dz, dt)
+    if (bombPressed() && cd1 <= 0 && !keys.has('Enter')) { dropBomb(f1); cd1 = 0.3; clearBombKeys() }
     const dx2 = (keys.has('ArrowRight') ? 1 : 0) - (keys.has('ArrowLeft') ? 1 : 0)
     const dz2 = (keys.has('ArrowDown') ? 1 : 0) - (keys.has('ArrowUp') ? 1 : 0)
     if (dx2 || dz2) move(f2, dx2 / Math.hypot(dx2, dz2), dz2 / Math.hypot(dx2, dz2), dt)
     if (keys.has('Enter') && cd2 <= 0) { dropBomb(f2); cd2 = 0.3; keys.delete('Enter') }
   } else if (botMode) {
-    const dx = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0)
-    const dz = (keys.has('KeyS') ? 1 : 0) - (keys.has('KeyW') ? 1 : 0)
-    if (dx || dz) move(f1, dx / Math.hypot(dx, dz), dz / Math.hypot(dx, dz), dt)
-    if (keys.has('Space') && cd1 <= 0) { dropBomb(f1); cd1 = 0.3; keys.delete('Space') }
+    const v = anyMoveVec()
+    if (v) move(f1, v.dx, v.dz, dt)
+    if (bombPressed() && cd1 <= 0) { dropBomb(f1); cd1 = 0.3; clearBombKeys() }
     botUpdate(dt)
   } else if (online) {
     const L = me(), R = foe()
-    const dx = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0)
-    const dz = (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) - (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0)
-    if (dx || dz) move(L, dx / Math.hypot(dx, dz), dz / Math.hypot(dx, dz), dt)
-    if ((keys.has('Space') || keys.has('Enter')) && cd1 <= 0) { dropBomb(L); cd1 = 0.3; keys.delete('Space'); keys.delete('Enter') }
+    const v = anyMoveVec()
+    if (v) move(L, v.dx, v.dz, dt)
+    if (bombPressed() && cd1 <= 0) { dropBomb(L); cd1 = 0.3; clearBombKeys() }
     if (R.alive) {
       R.x += (R.tx - R.x) * Math.min(1, dt * 12)
       R.z += (R.tz - R.z) * Math.min(1, dt * 12)
       R.mesh.position.set(R.x, Math.abs(Math.sin(now / 140)) * 0.07, R.z)
     }
   } else {
-    const dx = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0)
-    const dz = (keys.has('KeyS') ? 1 : 0) - (keys.has('KeyW') ? 1 : 0)
-    if (dx || dz) move(f1, dx / Math.hypot(dx, dz), dz / Math.hypot(dx, dz), dt)
-    if (keys.has('Space') && cd1 <= 0) { dropBomb(f1); cd1 = 0.3; keys.delete('Space') }
+    const v = anyMoveVec()
+    if (v) move(f1, v.dx, v.dz, dt)
+    if (bombPressed() && cd1 <= 0) { dropBomb(f1); cd1 = 0.3; clearBombKeys() }
   }
 
   for (let i = bombs.length - 1; i >= 0; i--) {
@@ -488,9 +540,6 @@ function frame() {
   renderer.render(scene, camera)
   requestAnimationFrame(frame)
 }
-addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight
-  camera.updateProjectionMatrix()
-  renderer.setSize(innerWidth, innerHeight)
-})
+addEventListener('resize', fitCamera)
+addEventListener('orientationchange', () => setTimeout(fitCamera, 100))
 frame()

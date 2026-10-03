@@ -1,8 +1,8 @@
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; overflow: hidden; background: #101d12; font-family: "Nunito", "SF Pro Rounded", system-ui, sans-serif; }
-#scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
-.hud { position: fixed; inset: 0; pointer-events: none; color: #fff; }
-.hud__top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 14px 16px; }
+html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: #101d12; font-family: "Nunito", "SF Pro Rounded", system-ui, sans-serif; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+#scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.hud { position: fixed; inset: 0; pointer-events: none; color: #fff; z-index: 5; }
+.hud__top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: calc(14px + env(safe-area-inset-top)) 16px 14px; }
 .badge { background: rgba(16, 28, 16, .62); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,.16); border-radius: 16px; padding: 10px 14px; box-shadow: 0 6px 24px rgba(0,0,0,.35); }
 .badge__label { font-weight: 900; display: block; font-size: 17px; letter-spacing: .2px; }
 .badge__sub { opacity: .75; font-size: 12px; }
@@ -17,6 +17,33 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #101d12; fon
 .stat--p1 { border: 1.5px solid #4dabf7; } .stat--p2 { border: 1.5px solid #ff6b6b; }
 .hint { position: absolute; left: 16px; bottom: 14px; background: rgba(16, 28, 16, .62); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,.12); padding: 10px 14px; border-radius: 14px; font-size: 12.5px; line-height: 1.6; box-shadow: 0 6px 24px rgba(0,0,0,.35); }
 .hint b { color: #ffd93d; }
+.hint--touch { display: none; }
+body.touch .hint--keys { display: none; }
+body.touch .hint--touch { display: block; }
 .banner { position: absolute; top: 24%; left: 50%; transform: translateX(-50%); font-size: 46px; font-weight: 900; text-shadow: 0 4px 0 rgba(0,0,0,.45), 0 8px 32px rgba(0,0,0,.5); background: rgba(16,28,16,.55); padding: 12px 32px; border-radius: 22px; border: 1px solid rgba(255,255,255,.2); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); animation: pop .35s cubic-bezier(.2,1.6,.4,1); white-space: nowrap; }
 @keyframes pop { from { transform: translateX(-50%) scale(.6); opacity: 0; } }
 .hidden { display: none; }
+
+/* ---- touch controls (only on touch devices) ---- */
+.touch-ui { display: none; }
+body.touch .touch-ui { display: block; }
+#joy-zone { position: fixed; left: 0; bottom: 0; width: 55%; height: 65%; z-index: 10; touch-action: none; }
+#joy-base { display: none; position: fixed; width: 112px; height: 112px; margin: -56px 0 0 -56px; border-radius: 50%; background: rgba(255,255,255,.10); border: 2px solid rgba(255,255,255,.35); z-index: 11; pointer-events: none; }
+#joy-knob { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; border-radius: 50%; background: rgba(255,217,61,.9); box-shadow: 0 4px 16px rgba(0,0,0,.45); transform: translate(-50%, -50%); }
+#btn-bomb { position: fixed; right: calc(22px + env(safe-area-inset-right)); bottom: calc(34px + env(safe-area-inset-bottom)); width: 84px; height: 84px; border-radius: 50%; font-size: 38px; border: 3px solid rgba(255,255,255,.4); background: rgba(232,163,78,.92); box-shadow: 0 6px 24px rgba(0,0,0,.5); z-index: 10; touch-action: none; }
+#btn-bomb:active { transform: scale(.92); background: rgba(255,123,28,.95); }
+body.touch .hint--touch { bottom: calc(130px + env(safe-area-inset-bottom)); }
+
+/* ---- small screens ---- */
+@media (max-width: 640px) {
+  .hud__top { padding: calc(10px + env(safe-area-inset-top)) 10px 10px; gap: 6px; }
+  .badge { padding: 7px 10px; border-radius: 12px; }
+  .badge__label { font-size: 13px; }
+  .badge__sub { display: none; }
+  .timer { font-size: 17px; padding: 6px 12px; border-radius: 12px; }
+  .net { font-size: 11px; padding: 6px 10px; }
+  .stats { top: 64px; left: 10px; }
+  .stat { font-size: 11px; padding: 4px 10px; }
+  .hint { font-size: 11px; left: 10px; right: 10px; }
+  .banner { font-size: 26px; padding: 10px 20px; max-width: 92vw; white-space: normal; text-align: center; }
+}

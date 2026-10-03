@@ -2,7 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Bomberman Toy Box — 2P</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
@@ -21,11 +23,19 @@
         <span id="stat-p1" class="stat stat--p1">P1</span>
         <span id="stat-p2" class="stat stat--p2">P2</span>
       </div>
-      <div class="hint">
+      <div class="hint hint--keys">
         <div><b>WASD/Arrows + Space/Enter</b> — move + bomb (your slot auto-assigned P1/P2 online)</div>
         <div><b>?local2P</b> couch 2P · <b>?bot</b> practice · <b>R</b> restart when over · open 2 tabs to test online</div>
       </div>
+      <div class="hint hint--touch">
+        <div><b>Left thumb</b> — joystick to move · <b>💣 button</b> — drop bomb</div>
+      </div>
       <div id="banner" class="banner hidden"></div>
+    </div>
+    <div class="touch-ui" aria-hidden="true">
+      <div id="joy-zone"></div>
+      <div id="joy-base"><div id="joy-knob"></div></div>
+      <button type="button" id="btn-bomb" aria-label="drop bomb">💣</button>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
