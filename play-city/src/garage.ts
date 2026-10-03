@@ -79,7 +79,9 @@ export function mountGarage(): Promise<GarageResult> {
 
   const paintSelection = () => {
     for (const button of colorRow.querySelectorAll<HTMLButtonElement>('.garage__swatch')) {
-      button.classList.toggle('garage__choice--active', Number(button.dataset.index) === colorIndex)
+      // Swatches need their own active class — `garage__choice--active` would
+      // set text/border colours that the later `.garage__swatch` rule overrides.
+      button.classList.toggle('garage__swatch--active', Number(button.dataset.index) === colorIndex)
     }
   }
   const paintKind = () => {

@@ -163,7 +163,9 @@ function openStream(req, res, url) {
     id,
     // Names are cosmetic: NFC-normalised, control chars stripped, capped short.
     name: readName(url),
-    color: Number.isFinite(rawColour) ? clamp(Math.round(rawColour), 0, COLOUR_COUNT - 1) : 0,
+    // clamp() here is the symmetric ±limit helper, so the 0..7 range is done
+    // by hand — a clamp(raw, 0, 7) call would read limit=0 and zero every colour.
+    color: Number.isFinite(rawColour) ? Math.max(0, Math.min(COLOUR_COUNT - 1, Math.round(rawColour))) : 0,
     kind: vehicleCode(url.searchParams.get('kind')),
     res,
     // The client sends its spawn on the URL so peers never see a car sitting at

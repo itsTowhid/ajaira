@@ -36,7 +36,7 @@ export class Room {
 
   connect() {
     try {
-      this.es = new EventSource(`/api/stream?id=${encodeURIComponent(this.id)}`)
+      this.es = new EventSource(`/bomber/api/stream?id=${encodeURIComponent(this.id)}`)
     } catch {
       return
     }
@@ -85,7 +85,7 @@ export class Room {
     const send = () => {
       try {
         const body = JSON.stringify(get())
-        fetch(`/api/state?id=${encodeURIComponent(this.id)}`, {
+        fetch(`/bomber/api/state?id=${encodeURIComponent(this.id)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body,

@@ -57,14 +57,18 @@ export class ToyBike {
       return mesh
     }
 
-    // Chassis. The fairing carries the player's colour so a bike is as readable
-    // on the minimap as a car.
+    // Chassis. Paint goes on the surfaces the chase camera can actually see:
+    // the tank pokes out either side of the rider, and the tail and both
+    // fenders sit outside their silhouettes. A fairing hidden behind the
+    // rider's back might as well not be painted at all.
     add(this.lean, [0.13, 0.95, 0.13], [0, 0.5, 0.9], mat.metal())
     add(this.lean, [0.88, 0.09, 0.11], [0, 0.98, 0.86], mat.metal())
-    add(this.lean, [0.36, 0.3, 0.66], [0, 0.72, 0.28], paint)
-    add(this.lean, [0.3, 0.12, 0.6], [0, 0.66, -0.42], mat.metal())
+    add(this.lean, [0.56, 0.3, 0.66], [0, 0.72, 0.28], paint)
+    add(this.lean, [0.3, 0.12, 0.6], [0, 0.66, -0.42], paint)
     add(this.lean, [0.3, 0.36, 0.5], [0, 0.28, -0.05], mat.metal())
     add(this.lean, [0.28, 0.26, 0.12], [0, 0.8, 1.0], mat.headlight())
+    add(this.lean, [0.34, 0.1, 0.5], [0, 0.78, WHEELBASE / 2], paint) // front fender
+    add(this.lean, [0.4, 0.1, 0.56], [0, 0.76, -WHEELBASE / 2 - 0.06], paint) // rear fender
 
     // Rider. Arms are aimed at the bars so the machine reads as being ridden.
     const suit = mat.rider()
