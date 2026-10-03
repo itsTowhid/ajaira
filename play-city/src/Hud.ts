@@ -121,7 +121,10 @@ export class Hud {
 
     this.ctx.save()
     this.ctx.translate(toX(position.x), toY(position.z))
-    this.ctx.rotate(-heading)
+    // Map is a top view with +x right and +z down; heading 0 faces +z (down).
+    // The arrow is drawn pointing up, so the canvas rotation is π − heading —
+    // plain −heading mirrors steering and flips the arrow 180°.
+    this.ctx.rotate(Math.PI - heading)
     this.ctx.fillStyle = '#ffd45e'
     this.ctx.beginPath()
     this.ctx.moveTo(0, -7)
