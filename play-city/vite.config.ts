@@ -2,6 +2,10 @@ import { defineConfig } from 'vite'
 import { createMultiplayer } from './server/net.mjs'
 
 export default defineConfig({
+  // Top-level await (the garage gates game boot in main.ts) needs ES2022.
+  build: {
+    target: 'es2022',
+  },
   server: {
     port: 5173,
     open: true,

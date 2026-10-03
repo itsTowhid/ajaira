@@ -5,6 +5,44 @@ import { TICK_MS, vehicleCode, vehicleKind, type NetStatus, type ServerEvent, ty
 
 const ID_KEY = 'play-city:player-id'
 const ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/
+/** Garage answers survive reloads, keyed next to the id. */
+export const PROFILE_KEY = 'play-city:profile'
+
+/** What the garage screen collected before the game boots. */
+export interface PlayerProfile {
+  name: string
+  kind: VehicleKind
+  colorIndex: number
+}
+
+/** Reads the saved garage answers; anything odd falls back to defaults. */
+export function readProfile(): PlayerProfile {
+  const fallback: PlayerProfile = { name: '', kind: 'car', colorIndex: -1 }
+  try {
+    const raw = sessionStorage.getItem(PROFILE_KEY)
+    if (!raw) return fallback
+    const parsed = JSON.parse(raw) as Partial<PlayerProfile>
+    return {
+      name: typeof parsed.name === 'string' ? parsed.name.slice(0, 16) : '',
+      kind: parsed.kind === 'bike' ? 'bike' : 'car',
+      colorIndex:
+        typeof parsed.colorIndex === 'number' && Number.isInteger(parsed.colorIndex)
+          ? Math.max(-1, Math.min(7, parsed.colorIndex))
+          : -1,
+    }
+  } catch {
+    return fallback
+  }
+}
+
+/** Writes the garage answers so a reload (or reconnect) keeps your ride. */
+export function writeProfile(profile: PlayerProfile) {
+  try {
+    sessionStorage.setItem(PROFILE_KEY, JSON.stringify(profile))
+  } catch {
+    /* private mode: the game still runs, you just re-answer after a reload */
+  }
+}
 
 /** Ignore sub-centimetre jitter; it is just noise in the interpolation buffer. */
 const MOVE_EPSILON = 0.05
@@ -15,6 +53,7 @@ const KEEPALIVE_MS = 1000
 /** One remote car as we currently believe it to be. */
 export interface RemoteState {
   id: string
+  name: string
   color: number
   kind: VehicleKind
   x: number
@@ -91,6 +130,7 @@ function readEvent(data: string): ServerEvent | null {
 
 function toRemote(wire: {
   id: string
+  name?: string
   color: number
   kind: number
   x: number
@@ -102,6 +142,8 @@ function toRemote(wire: {
   if (![wire.color, wire.x, wire.z, wire.h, wire.s].every(isFiniteNumber)) return null
   return {
     id: wire.id,
+    // Tolerates old peers/relays that predate names.
+    name: typeof wire.name === 'string' ? wire.name : '',
     color: wire.color,
     kind: vehicleKind(wire.kind),
     x: wire.x,
@@ -118,11 +160,14 @@ function toRemote(wire: {
  */
 export class Presence {
   readonly id: string = readId()
-  readonly color: number = hashColor(this.id)
+  readonly profile: PlayerProfile
+  /** Display name for the floating tag; '' when the player skipped the garage. */
+  readonly name: string
+  readonly color: number
   readonly spawn: CarSpawn = pickSpawn()
 
   /** What we are riding. Told to the network in every state POST. */
-  kind: VehicleKind = 'car'
+  kind: VehicleKind
   status: NetStatus = 'connecting'
   /** Replaced wholesale on `hello`, upserted on `join`/`state`, pruned on `leave`. */
   players = new Map<string, RemoteState>()
@@ -135,7 +180,15 @@ export class Presence {
   private lastZ = Number.NaN
   private lastH = Number.NaN
 
-  constructor() {
+  /**
+   * The garage picks colour and ride; an unpainted profile keeps the old
+   * hash-of-id behaviour so anonymous players still get stable colours.
+   */
+  constructor(profile: PlayerProfile = { name: '', kind: 'car', colorIndex: -1 }) {
+    this.profile = profile
+    this.name = profile.name.trim().slice(0, 16)
+    this.color = profile.colorIndex >= 0 ? profile.colorIndex : hashColor(this.id)
+    this.kind = profile.kind
     this.connect()
   }
 
@@ -193,6 +246,7 @@ export class Presence {
     try {
       const query = new URLSearchParams({
         id: this.id,
+        name: this.name,
         color: String(this.color),
         kind: String(vehicleCode(this.kind)),
         x: String(this.spawn.x),

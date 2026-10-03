@@ -6,6 +6,7 @@ import {
 } from '../car/tuning'
 import { createVehicle, profileFor, type Vehicle } from '../car/vehicle'
 import { CULL_DISTANCE, INTERP_DELAY_MS, MAX_EXTRAPOLATE_MS, MAX_REMOTE_CARS } from './protocol'
+import { NameTags } from './NameTags'
 import type { RemoteState } from './Presence'
 import type { VehicleKind } from './protocol'
 import type { CircleCollider } from '../city/layout'
@@ -49,6 +50,8 @@ interface Remote {
   pitch: number
   collider: CircleCollider
   blip: { x: number; z: number; color: number }
+  /** Latest pose, re-published for the name-tag layer each frame. */
+  pose: { x: number; z: number; h: number }
 }
 
 const angleDiff = (to: number, from: number) => {
@@ -127,6 +130,12 @@ export class RemoteCars {
   private remotes = new Map<string, Remote>()
 
   /**
+   * Name tags live in their own layer so RemoteCars keeps doing one thing:
+   * turning roster poses into solid, interpolated vehicles.
+   */
+  readonly nameTags = new NameTags()
+
+  /**
    * Diffs the roster against what is on screen, so no join/leave bookkeeping is
    * needed. When the city is busier than `MAX_REMOTE_CARS` the nearest cars win.
    */
@@ -155,6 +164,7 @@ export class RemoteCars {
       // a car that has just left, whatever order the frame called us in.
       dropFrom(this.colliders, remote.collider)
       dropFrom(this.blips, remote.blip)
+      this.nameTags.drop(id)
     }
 
     for (const id of wanted) {
@@ -173,6 +183,9 @@ export class RemoteCars {
     }
 
     this.ingest(roster)
+    // Tags track the roster (who has a name), not the render set, so a tag
+    // already waits when a distant named driver comes into range.
+    this.nameTags.sync(roster.values())
   }
 
   /**
@@ -199,7 +212,7 @@ export class RemoteCars {
     this.colliders.length = 0
     this.blips.length = 0
 
-    for (const remote of this.remotes.values()) {
+    for (const [id, remote] of this.remotes.entries()) {
       const state = sampleAt(remote.ring, target)
       if (!state) continue
 
@@ -237,6 +250,10 @@ export class RemoteCars {
         wheel: remote.wheel,
       })
 
+      remote.pose.x = state.x
+      remote.pose.z = state.z
+      remote.pose.h = state.h
+
       remote.collider.x = state.x
       remote.collider.z = state.z
       this.colliders.push(remote.collider)
@@ -244,6 +261,10 @@ export class RemoteCars {
       remote.blip.x = state.x
       remote.blip.z = state.z
       this.blips.push(remote.blip)
+
+      if (remote.vehicle.group.visible) {
+        this.nameTags.place(id, state.x, 0, state.z, camera)
+      }
 
       const dx = state.x - camera.position.x
       const dz = state.z - camera.position.z
@@ -269,6 +290,7 @@ export class RemoteCars {
       pitch: 0,
       collider: { x: state.x, z: state.z, r: profile.colliderRadius },
       blip: { x: state.x, z: state.z, color: state.color },
+      pose: { x: state.x, z: state.z, h: state.h },
     }
   }
 

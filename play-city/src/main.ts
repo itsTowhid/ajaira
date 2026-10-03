@@ -9,11 +9,17 @@ import { createVehicle, profileFor, vehicleLabel, type Vehicle } from './car/veh
 import { ChaseCamera } from './ChaseCamera'
 import { Hud } from './Hud'
 import { Input } from './Input'
+import { mountGarage } from './garage'
 import { Presence } from './net/Presence'
 import { RemoteCars } from './net/RemoteCars'
 import { otherVehicle, type VehicleKind } from './net/protocol'
 
 const canvas = document.querySelector<HTMLCanvasElement>('#scene')!
+
+// Everything below depends on who you are, so the garage runs first. The
+// promise resolves when the player picks a ride (or skips) — until then the
+// scene stays a frozen backdrop behind the overlay.
+const profile = await mountGarage()
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -56,15 +62,17 @@ scene.add(sun.target)
 
 scene.add(new THREE.HemisphereLight(0xcfe6ff, 0x86a06a, 1.35))
 
-// Identity and spawn are ours, so the car is painted correctly on frame one and
-// the tab can be reloaded without changing colour.
-const presence = new Presence()
+// Identity comes from the garage (name, ride, paint) and is settled before the
+// first network packet, so the car is painted correctly on frame one and the
+// tab can be reloaded without changing either.
+const presence = new Presence(profile)
 const remoteCars = new RemoteCars()
 scene.add(remoteCars.group)
 
 let kind: VehicleKind = presence.kind
 let vehicle: Vehicle = createVehicle(kind, presence.color)
 scene.add(vehicle.group)
+scene.add(remoteCars.nameTags.group)
 let controller = new CarController(vehicle, presence.spawn, profileFor(kind))
 
 const chase = new ChaseCamera(camera)

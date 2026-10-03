@@ -72,6 +72,16 @@ function readId(url) {
   return id && ID_PATTERN.test(id) ? id : null
 }
 
+/** Display name for the floating tag. Cosmetic, so anything hostile becomes ''. */
+function readName(url) {
+  try {
+    const raw = url.searchParams.get('name') ?? ''
+    return raw.normalize('NFC').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 16)
+  } catch {
+    return ''
+  }
+}
+
 function write(res, event, data) {
   try {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
@@ -99,6 +109,7 @@ function broadcast(event, data, exceptId) {
 function wirePlayer(session) {
   return {
     id: session.id,
+    name: session.name,
     color: session.color,
     kind: session.kind,
     x: session.x,
@@ -150,6 +161,8 @@ function openStream(req, res, url) {
   const rawColour = Number(url.searchParams.get('color'))
   const session = {
     id,
+    // Names are cosmetic: NFC-normalised, control chars stripped, capped short.
+    name: readName(url),
     color: Number.isFinite(rawColour) ? clamp(Math.round(rawColour), 0, COLOUR_COUNT - 1) : 0,
     kind: vehicleCode(url.searchParams.get('kind')),
     res,

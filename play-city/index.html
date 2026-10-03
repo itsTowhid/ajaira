@@ -9,6 +9,33 @@
   <body>
     <canvas id="scene"></canvas>
 
+    <div id="garage" class="garage">
+      <div class="garage__card">
+        <p class="garage__kicker">play city</p>
+        <h1 class="garage__title">Pick your ride</h1>
+
+        <label class="garage__field">
+          <span>Your name</span>
+          <input id="garage-name" type="text" maxlength="16" placeholder="Anonymous driver" autocomplete="off" />
+        </label>
+
+        <div class="garage__field">
+          <span>Vehicle</span>
+          <div class="garage__choices" id="garage-kind">
+            <button type="button" class="garage__choice" data-kind="car">Car</button>
+            <button type="button" class="garage__choice" data-kind="bike">Bike</button>
+          </div>
+        </div>
+
+        <div class="garage__field">
+          <span>Colour</span>
+          <div class="garage__choices" id="garage-color"></div>
+        </div>
+
+        <button type="button" id="garage-start" class="garage__start">Drive</button>
+      </div>
+    </div>
+
     <div class="hud">
       <div class="hud__top">
         <div class="badge">

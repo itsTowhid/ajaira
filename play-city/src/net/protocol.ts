@@ -7,6 +7,8 @@
 /** One remote car, as the server last heard of it. */
 export interface WirePlayer {
   id: string
+  /** Display name for the floating tag; '' when the player skipped the garage. */
+  name: string
   color: number
   /** Numeric vehicle code, see `vehicleCode`. */
   kind: number
@@ -20,7 +22,7 @@ export type ServerEvent =
   /** Full roster, sent once to a joining client. Replaces whatever it had. */
   | { t: 'hello'; id: string; players: WirePlayer[] }
   /** One car appeared. */
-  | { t: 'join'; id: string; color: number; kind: number; x: number; z: number; h: number; s: number }
+  | { t: 'join'; id: string; name: string; color: number; kind: number; x: number; z: number; h: number; s: number }
   /** One car went away. */
   | { t: 'leave'; id: string }
   /** Pose batch at TICK_MS. The tuple is [x, z, h, s, kind] to keep 12 Hz small. */
