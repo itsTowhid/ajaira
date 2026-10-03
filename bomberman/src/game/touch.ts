@@ -17,8 +17,8 @@ export class TouchControls {
   private base: HTMLElement | null
   private knob: HTMLElement | null
 
-  static readonly RADIUS = 52
-  static readonly DEADZONE = 0.28
+  static readonly RADIUS = 64
+  static readonly DEADZONE = 0.24
 
   constructor() {
     this.isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0

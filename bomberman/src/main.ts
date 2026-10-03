@@ -59,18 +59,35 @@ scene.fog = new THREE.Fog(0xa9d6e5, 34, 70)
 const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 220)
 const CAM_DIR = new THREE.Vector3(0, 14.5, 9.5).normalize()
 const CAM_DIST = new THREE.Vector3(0, 14.5, 9.5).length()
+/** View pivot; slides on portrait so the zoomed view follows the action. */
+const camTarget = new THREE.Vector3(0, 0, -0.3)
 
-/** Pull the camera back on narrow/portrait screens so the arena still fits. */
-function fitCamera() {
-  const aspect = innerWidth / innerHeight
-  camera.aspect = aspect
-  const k = aspect >= 1.3 ? 1 : Math.min(2.1, 1.35 / aspect)
-  camera.position.copy(CAM_DIR).multiplyScalar(CAM_DIST * k)
-  camera.lookAt(0, 0, -0.3)
+function resize() {
+  camera.aspect = innerWidth / innerHeight
   camera.updateProjectionMatrix()
   renderer.setSize(innerWidth, innerHeight)
 }
-fitCamera()
+addEventListener('resize', resize)
+
+/**
+ * Landscape fits the whole 13x11 board (k=1). Fitting the width on a portrait
+ * phone needs ~2.1x distance, which shrank the board to a ~30%-height strip —
+ * so portrait instead zooms to k<=1.6 (~34% bigger tiles, ~9-10 of 13 columns
+ * visible) and slides horizontally to follow the local fighter, clamped so the
+ * view never slides off the board. Desktop framing is pixel-identical to before.
+ */
+function updateCamera(dt: number, focusX: number) {
+  const aspect = innerWidth / innerHeight
+  const portrait = aspect < 1.3
+  const k = portrait ? Math.min(1.6, 1.3 / aspect) : 1
+  // Visible half-width at k=1.6 is ~4.85 tiles vs the board's 6.5, so the
+  // pivot may stray at most ~1.65 tiles from centre before showing void.
+  const wantX = portrait ? THREE.MathUtils.clamp(focusX, -1.65, 1.65) : 0
+  camTarget.x += (wantX - camTarget.x) * Math.min(1, dt * 5)
+  camera.position.copy(CAM_DIR).multiplyScalar(CAM_DIST * k).add(camTarget)
+  camera.lookAt(camTarget)
+}
+updateCamera(1, 0)
 
 scene.add(new THREE.HemisphereLight(0xcdeaff, 0x5f7038, 0.95))
 const sun = new THREE.DirectionalLight(0xfff1d0, 2.4)
@@ -537,9 +554,10 @@ function frame() {
   stat2.textContent = `🔴 P2 · 💣${f2.bombs} 🔥${f2.range} 👟${f2.speed.toFixed(1)}`
   if (!netEl.textContent) netEl.textContent = room.status
 
+  // Portrait slides the view to follow the local fighter; landscape is fixed.
+  updateCamera(dt, me().x)
+
   renderer.render(scene, camera)
   requestAnimationFrame(frame)
 }
-addEventListener('resize', fitCamera)
-addEventListener('orientationchange', () => setTimeout(fitCamera, 100))
 frame()
