@@ -6,11 +6,7 @@ import {
 } from './game/level'
 import { rollPower, makePowerMesh, placePowerMesh, type PowerKind } from './game/powerups'
 import { TouchControls } from './game/touch'
-import { Room, type BombEvent } from './net/room'
 
-const params = new URLSearchParams(location.search)
-const local2P = params.has('local2P')
-const botMode = params.has('bot')
 const SEED = 7
 const MATCH_SECS = 90
 
@@ -139,20 +135,14 @@ let timeLeft = MATCH_SECS
 let suddenDeath = false
 let suddenTimer = 0
 let over = false
-let restartSeq = 0
-let bombSeq = 0
-const pendingBombs: BombEvent[] = []
-const pendingPickups: string[] = []
-
 const banner = document.querySelector('#banner')!
 const timerEl = document.querySelector('#timer')!
 const stat1 = document.querySelector('#stat-p1')!
 const stat2 = document.querySelector('#stat-p2')!
-const netEl = document.querySelector('#net-value')!
 
 const keys = new Set<string>()
 addEventListener('keydown', (e) => {
-  if (e.code === 'KeyR' && over) { resetMatch(); restartSeq++; return }
+  if (e.code === 'KeyR' && over) { resetMatch(); return }
   keys.add(e.code)
 })
 addEventListener('keyup', (e) => keys.delete(e.code))
@@ -176,20 +166,6 @@ function moveVec(useArrows: boolean): { dx: number; dz: number } | null {
   return null
 }
 
-/** WASD + arrows + touch bomb button, all feeding one local fighter. */
-function anyMoveVec(): { dx: number; dz: number } | null {
-  const dx = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) -
-    (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0)
-  const dz = (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) -
-    (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0)
-  if (dx || dz) {
-    const len = Math.hypot(dx, dz)
-    return { dx: dx / len, dz: dz / len }
-  }
-  if (touch.active) return { dx: touch.vec.x, dz: touch.vec.z }
-  return null
-}
-
 function bombPressed(): boolean {
   if (touch.consumeBomb()) return true
   return keys.has('Space') || keys.has('Enter')
@@ -200,45 +176,7 @@ function clearBombKeys() {
   keys.delete('Enter')
 }
 
-// ---------- net ----------
-const room = new Room()
-let mySlot: 1 | 2 = 1
-const remoteById = new Map<string, 1 | 2>()
-room.onHello = (existing) => {
-  mySlot = existing === 0 ? 1 : 2
-  netEl.textContent = room.status
-}
-room.onRemote = (id, s) => {
-  if (!remoteById.has(id)) remoteById.set(id, mySlot === 1 ? 2 : 1)
-  const slot = remoteById.get(id)!
-  const f = slot === 1 ? f1 : f2
-  f.tx = s.x; f.tz = s.z
-  if (!s.alive && f.alive) kill(f)
-  for (const b of s.bombs ?? []) {
-    if (room.seenBomb(id, b.seq)) continue
-    spawnBomb(f, b.cx, b.cz, b.range, `${id}:${b.seq}`)
-  }
-  for (const cell of s.pickups ?? []) {
-    const p = powers.get(cell)
-    if (p) { scene.remove(p.mesh); powers.delete(cell) }
-  }
-  if (s.restart > restartSeq) { restartSeq = s.restart; resetMatch() }
-  netEl.textContent = room.status
-}
-room.onLeave = () => { netEl.textContent = room.status }
-room.connect()
-room.announce(() => {
-  const m = mySlot === 1 ? f1 : f2
-  return {
-    x: round(m.x), z: round(m.z), alive: m.alive,
-    seq: bombSeq, bombs: pendingBombs.splice(0), pickups: pendingPickups.splice(0),
-    restart: restartSeq,
-  }
-})
-const round = (v: number) => Math.round(v * 1000) / 1000
-
-const me = () => (mySlot === 1 ? f1 : f2)
-const foe = () => (mySlot === 1 ? f2 : f1)
+const me = () => f1
 
 // ---------- gameplay ----------
 // Player body radius in world units (tile = 1). Circle-vs-grid collision
@@ -289,9 +227,7 @@ function dropBomb(f: Fighter) {
   // don't trap yourself: need a free neighbour to escape to
   const esc: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]]
   if (!esc.some(([dx, dz]) => !solidCell(cx + dx, cz + dz))) return
-  bombSeq++
-  spawnBomb(f, cx, cz, f.range, `local:${bombSeq}`)
-  pendingBombs.push({ cx, cz, range: f.range, seq: bombSeq })
+  spawnBomb(f, cx, cz, f.range, `local`)
 }
 
 function explode(b: Bomb) {
@@ -353,7 +289,7 @@ function endCheck() {
     if (!f1.alive || !f2.alive) {
       over = true
       banner.innerHTML = !f1.alive && !f2.alive ? 'DRAW — press R'
-        : f1.alive ? '🔵 P1 WINS — press R' : '🔴 P2 WINS — press R'
+        : f1.alive ? '🔵 YOU WIN — press R' : '🔴 CPU WINS — press R'
       banner.classList.remove('hidden')
     }
     return
@@ -417,7 +353,6 @@ function move(f: Fighter, dx: number, dz: number, dt: number) {
     if (p.kind === 'speed') f.speed = Math.min(7, f.speed + 0.7)
     scene.remove(p.mesh)
     powers.delete(key)
-    pendingPickups.push(key)
   }
 }
 
@@ -443,11 +378,11 @@ function botUpdate(dt: number) {
 
 // ---------- loop ----------
 const clock = new THREE.Clock()
-let cd1 = 0, cd2 = 0
+let cd1 = 0
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.05)
   const now = performance.now()
-  cd1 -= dt; cd2 -= dt
+  cd1 -= dt
   flash.intensity = Math.max(0, flash.intensity - dt * 160)
 
   if (!over) {
@@ -481,34 +416,12 @@ function frame() {
     }
   }
 
-  const online = remoteById.size > 0 && !local2P && !botMode
-  if (local2P) {
+  // Single player vs the bot, always.
+  {
     const v = moveVec(false)
-    if (v) move(f1, v.dx, v.dz, dt)
-    if (bombPressed() && cd1 <= 0 && !keys.has('Enter')) { dropBomb(f1); cd1 = 0.3; clearBombKeys() }
-    const dx2 = (keys.has('ArrowRight') ? 1 : 0) - (keys.has('ArrowLeft') ? 1 : 0)
-    const dz2 = (keys.has('ArrowDown') ? 1 : 0) - (keys.has('ArrowUp') ? 1 : 0)
-    if (dx2 || dz2) move(f2, dx2 / Math.hypot(dx2, dz2), dz2 / Math.hypot(dx2, dz2), dt)
-    if (keys.has('Enter') && cd2 <= 0) { dropBomb(f2); cd2 = 0.3; keys.delete('Enter') }
-  } else if (botMode) {
-    const v = anyMoveVec()
     if (v) move(f1, v.dx, v.dz, dt)
     if (bombPressed() && cd1 <= 0) { dropBomb(f1); cd1 = 0.3; clearBombKeys() }
     botUpdate(dt)
-  } else if (online) {
-    const L = me(), R = foe()
-    const v = anyMoveVec()
-    if (v) move(L, v.dx, v.dz, dt)
-    if (bombPressed() && cd1 <= 0) { dropBomb(L); cd1 = 0.3; clearBombKeys() }
-    if (R.alive) {
-      R.x += (R.tx - R.x) * Math.min(1, dt * 12)
-      R.z += (R.tz - R.z) * Math.min(1, dt * 12)
-      R.mesh.position.set(R.x, Math.abs(Math.sin(now / 140)) * 0.07, R.z)
-    }
-  } else {
-    const v = anyMoveVec()
-    if (v) move(f1, v.dx, v.dz, dt)
-    if (bombPressed() && cd1 <= 0) { dropBomb(f1); cd1 = 0.3; clearBombKeys() }
   }
 
   for (let i = bombs.length - 1; i >= 0; i--) {
@@ -551,8 +464,7 @@ function frame() {
   timerEl.textContent = suddenDeath ? `☠️ ${mm}:${ss}` : `${mm}:${ss}`
   timerEl.classList.toggle('timer--danger', suddenDeath || timeLeft < 15)
   stat1.textContent = `🔵 P1 · 💣${f1.bombs} 🔥${f1.range} 👟${f1.speed.toFixed(1)}`
-  stat2.textContent = `🔴 P2 · 💣${f2.bombs} 🔥${f2.range} 👟${f2.speed.toFixed(1)}`
-  if (!netEl.textContent) netEl.textContent = room.status
+  stat2.textContent = `🔴 CPU · 💣${f2.bombs} 🔥${f2.range} 👟${f2.speed.toFixed(1)}`
 
   // Portrait slides the view to follow the local fighter; landscape is fixed.
   updateCamera(dt, me().x)

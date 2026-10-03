@@ -1,13 +1,11 @@
 import { defineConfig } from 'vite'
-import { createBomberRelay } from './server/net.mjs'
 
 export default defineConfig({
-  // Deployed under /bomber/ on ajaira.bhaai.site (play-city owns the root /api/).
+  // Deployed under /bomber/ on ajaira.bhaai.site.
   base: '/bomber/',
   server: {
     port: 5174,
     open: true,
     host: true,
   },
-  plugins: [createBomberRelay()],
 })
