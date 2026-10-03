@@ -1,24 +1,19 @@
 import * as THREE from 'three'
-import { ToyCar } from '../car/ToyCar'
 import {
-  MAX_PITCH,
-  MAX_SPEED,
-  PITCH_FROM_ACCEL,
   POSE_RATE,
-  ROLL_PER_STEER,
-  STEER_RATE,
   steerLimitFor,
-  TURN_DIVISOR,
+  type VehicleProfile,
 } from '../car/tuning'
+import { createVehicle, profileFor, type Vehicle } from '../car/vehicle'
 import { CULL_DISTANCE, INTERP_DELAY_MS, MAX_EXTRAPOLATE_MS, MAX_REMOTE_CARS } from './protocol'
 import type { RemoteState } from './Presence'
+import type { VehicleKind } from './protocol'
 import type { CircleCollider } from '../city/layout'
 
 /** Two seconds of history at 12 Hz. */
 const RING_SIZE = 24
 /** Below this, inverting yaw rate to a steer angle is meaningless. */
 const MIN_SPEED_FOR_STEER = 1.5
-const CAR_RADIUS = 1.6
 const TAU = Math.PI * 2
 
 interface Snapshot {
@@ -42,7 +37,9 @@ interface Sample {
 }
 
 interface Remote {
-  toy: ToyCar
+  kind: VehicleKind
+  profile: VehicleProfile
+  vehicle: Vehicle
   ring: Snapshot[]
   /** Cosmetic state, integrated locally the way CarController integrates it. */
   wheel: number
@@ -116,9 +113,9 @@ function sampleAt(ring: Snapshot[], target: number): Sample | null {
 }
 
 /**
- * Visuals for everybody else's car. Purely downstream of `Presence`: nobody here
- * simulates, so a remote car is always a slightly late interpolation of what its
- * owner reported.
+ * Visuals for everybody else's ride. Purely downstream of `Presence`: nobody
+ * here simulates, so a remote vehicle is always a slightly late interpolation
+ * of what its owner reported.
  */
 export class RemoteCars {
   readonly group = new THREE.Group()
@@ -152,7 +149,7 @@ export class RemoteCars {
 
     for (const [id, remote] of this.remotes) {
       if (wanted.includes(id)) continue
-      remote.toy.dispose()
+      remote.vehicle.dispose()
       this.remotes.delete(id)
       // Prune here too, not only in update(): the local car must never bounce off
       // a car that has just left, whatever order the frame called us in.
@@ -161,12 +158,18 @@ export class RemoteCars {
     }
 
     for (const id of wanted) {
-      if (this.remotes.has(id)) continue
       const state = roster.get(id)
       if (!state) continue
-      const remote = this.create(state)
-      this.remotes.set(id, remote)
-      this.group.add(remote.toy.group)
+      const existing = this.remotes.get(id)
+      if (!existing) {
+        const remote = this.create(state)
+        this.remotes.set(id, remote)
+        this.group.add(remote.vehicle.group)
+      } else if (existing.kind !== state.kind) {
+        // Their player swapped vehicles. New mesh, same interpolation history, so
+        // the change lands where the car already is instead of teleporting back.
+        this.rebuild(existing, state)
+      }
     }
 
     this.ingest(roster)
@@ -200,29 +203,36 @@ export class RemoteCars {
       const state = sampleAt(remote.ring, target)
       if (!state) continue
 
-      const speedRatio = Math.min(1, Math.abs(state.s) / MAX_SPEED)
+      const profile = remote.profile
+      const speedRatio = Math.min(1, Math.abs(state.s) / profile.maxSpeed)
       // Invert CarController's heading integration, then apply the same speed
-      // falloff, so a remote car leans and turns exactly like a local one.
-      const rawSteer = Math.atan((state.yawRate * TURN_DIVISOR) / Math.max(MIN_SPEED_FOR_STEER, Math.abs(state.s)))
-      const limit = steerLimitFor(speedRatio)
+      // falloff, so a remote vehicle leans and turns exactly like a local one.
+      const rawSteer = Math.atan(
+        (state.yawRate * profile.turnDivisor) / Math.max(MIN_SPEED_FOR_STEER, Math.abs(state.s)),
+      )
+      const limit = steerLimitFor(speedRatio, profile)
       const targetSteer = THREE.MathUtils.clamp(rawSteer, -limit, limit)
-      remote.steer += (targetSteer - remote.steer) * Math.min(1, STEER_RATE * dt)
+      remote.steer += (targetSteer - remote.steer) * Math.min(1, profile.steerRate * dt)
 
-      const targetRoll = remote.steer * speedRatio * ROLL_PER_STEER
-      const targetPitch = THREE.MathUtils.clamp(-state.accel * PITCH_FROM_ACCEL, -MAX_PITCH, MAX_PITCH)
+      const targetRoll = remote.steer * speedRatio * profile.leanPerSteer
+      const targetPitch = THREE.MathUtils.clamp(
+        -state.accel * profile.pitchFromAccel,
+        -profile.maxPitch,
+        profile.maxPitch,
+      )
       remote.roll += (targetRoll - remote.roll) * Math.min(1, POSE_RATE * dt)
       remote.pitch += (targetPitch - remote.pitch) * Math.min(1, POSE_RATE * dt)
 
       remote.phase += dt * (4 + speedRatio * 26)
-      remote.wheel = (remote.wheel + (state.s * dt) / remote.toy.wheelRadius) % TAU
+      remote.wheel = (remote.wheel + (state.s * dt) / remote.vehicle.wheelRadius) % TAU
 
-      remote.toy.setPose({
+      remote.vehicle.setPose({
         x: state.x,
         z: state.z,
         heading: state.h,
         roll: remote.roll,
         pitch: remote.pitch,
-        bobY: Math.sin(remote.phase) * 0.015 * (0.3 + speedRatio),
+        bobY: Math.sin(remote.phase) * profile.bobAmplitude * (0.3 + speedRatio),
         steer: remote.steer,
         wheel: remote.wheel,
       })
@@ -237,24 +247,43 @@ export class RemoteCars {
 
       const dx = state.x - camera.position.x
       const dz = state.z - camera.position.z
-      // Each car is ~12 draw calls, so culling the far ones is the whole ballgame.
-      remote.toy.group.visible = dx * dx + dz * dz < CULL_DISTANCE * CULL_DISTANCE
+      // Each vehicle is a dozen-odd draw calls and is not instanced, so culling
+      // the far ones is the whole ballgame.
+      remote.vehicle.group.visible = dx * dx + dz * dz < CULL_DISTANCE * CULL_DISTANCE
     }
   }
 
   private create(state: RemoteState): Remote {
-    const toy = new ToyCar({ colorIndex: state.color })
+    const profile = profileFor(state.kind)
+    const vehicle = createVehicle(state.kind, state.color)
     const snap: Snapshot = { at: performance.now(), x: state.x, z: state.z, h: state.h, s: state.s }
     return {
-      toy,
+      kind: state.kind,
+      profile,
+      vehicle,
       ring: [snap],
       wheel: 0,
       phase: 0,
       steer: 0,
       roll: 0,
       pitch: 0,
-      collider: { x: state.x, z: state.z, r: CAR_RADIUS },
+      collider: { x: state.x, z: state.z, r: profile.colliderRadius },
       blip: { x: state.x, z: state.z, color: state.color },
     }
+  }
+
+  private rebuild(remote: Remote, state: RemoteState) {
+    remote.vehicle.dispose()
+    const profile = profileFor(state.kind)
+    const vehicle = createVehicle(state.kind, state.color)
+    this.group.add(vehicle.group)
+    remote.kind = state.kind
+    remote.profile = profile
+    remote.vehicle = vehicle
+    remote.collider.r = profile.colliderRadius
+    // Pose state described the old shape; start clean rather than easing in from it.
+    remote.steer = 0
+    remote.roll = 0
+    remote.pitch = 0
   }
 }

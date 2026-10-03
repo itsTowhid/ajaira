@@ -8,6 +8,8 @@
 export interface WirePlayer {
   id: string
   color: number
+  /** Numeric vehicle code, see `vehicleCode`. */
+  kind: number
   x: number
   z: number
   h: number
@@ -18,13 +20,34 @@ export type ServerEvent =
   /** Full roster, sent once to a joining client. Replaces whatever it had. */
   | { t: 'hello'; id: string; players: WirePlayer[] }
   /** One car appeared. */
-  | { t: 'join'; id: string; color: number; x: number; z: number; h: number; s: number }
+  | { t: 'join'; id: string; color: number; kind: number; x: number; z: number; h: number; s: number }
   /** One car went away. */
   | { t: 'leave'; id: string }
-  /** Pose batch at TICK_MS. The tuple is [x, z, h, s] to keep 12 Hz small. */
-  | { t: 'state'; p: Record<string, [number, number, number, number]> }
+  /** Pose batch at TICK_MS. The tuple is [x, z, h, s, kind] to keep 12 Hz small. */
+  | { t: 'state'; p: Record<string, [number, number, number, number, number]> }
 
 export type NetStatus = 'connecting' | 'online' | 'offline'
+
+/**
+ * What the player is riding. Kept out of the wire types because
+ * `server/net.mjs` cannot import this file — it validates against plain numbers.
+ */
+export type VehicleKind = 'car' | 'bike'
+
+export const VEHICLE_CODE: Record<VehicleKind, number> = { car: 0, bike: 1 }
+
+export function vehicleCode(kind: VehicleKind): number {
+  return VEHICLE_CODE[kind]
+}
+
+/** Anything unrecognised falls back to a car, which is always a safe render. */
+export function vehicleKind(code: unknown): VehicleKind {
+  return code === 1 ? 'bike' : 'car'
+}
+
+export function otherVehicle(kind: VehicleKind): VehicleKind {
+  return kind === 'bike' ? 'car' : 'bike'
+}
 
 /** Broadcast period. Keep in sync with TICK_MS in server/net.mjs. */
 export const TICK_MS = 83

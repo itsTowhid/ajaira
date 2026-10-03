@@ -4,13 +4,14 @@ import { buildCity } from './city/build'
 import { generateCityLayout } from './city/layout'
 import { Traffic } from './city/traffic'
 import { PALETTE } from './city/materials'
-import { ToyCar } from './car/ToyCar'
 import { CarController } from './car/CarController'
+import { createVehicle, profileFor, vehicleLabel, type Vehicle } from './car/vehicle'
 import { ChaseCamera } from './ChaseCamera'
 import { Hud } from './Hud'
 import { Input } from './Input'
 import { Presence } from './net/Presence'
 import { RemoteCars } from './net/RemoteCars'
+import { otherVehicle, type VehicleKind } from './net/protocol'
 
 const canvas = document.querySelector<HTMLCanvasElement>('#scene')!
 
@@ -61,12 +62,31 @@ const presence = new Presence()
 const remoteCars = new RemoteCars()
 scene.add(remoteCars.group)
 
-const playerCar = new ToyCar({ colorIndex: presence.color })
-scene.add(playerCar.group)
-const controller = new CarController(playerCar, presence.spawn)
+let kind: VehicleKind = presence.kind
+let vehicle: Vehicle = createVehicle(kind, presence.color)
+scene.add(vehicle.group)
+let controller = new CarController(vehicle, presence.spawn, profileFor(kind))
+
 const chase = new ChaseCamera(camera)
 const input = new Input(canvas)
 const hud = new Hud(layout)
+hud.setVehicle(vehicleLabel(kind))
+
+/**
+ * Swap rides on the spot. The pose carries over so you do not teleport, but
+ * momentum does not: the new vehicle starts from a standstill.
+ */
+function mountVehicle(next: VehicleKind) {
+  if (next === kind) return
+  const at = { x: controller.position.x, z: controller.position.z, heading: controller.heading }
+  vehicle.dispose()
+  vehicle = createVehicle(next, presence.color)
+  scene.add(vehicle.group)
+  controller = new CarController(vehicle, at, profileFor(next))
+  kind = next
+  presence.setKind(next)
+  hud.setVehicle(vehicleLabel(next))
+}
 
 const clock = new THREE.Clock()
 const sunOffset = new THREE.Vector3(70, 110, 50)
@@ -124,6 +144,7 @@ function frame() {
 
   if (input.consumeCameraToggle()) chase.cycleMode()
   if (input.consumeHelpToggle()) hud.toggleHint()
+  if (input.consumeVehicleToggle()) mountVehicle(otherVehicle(kind))
 
   chase.update(
     dt,

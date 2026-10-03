@@ -7,6 +7,7 @@ export interface InputState {
   zoomDelta: number
   toggleCamera: boolean
   toggleHelp: boolean
+  toggleVehicle: boolean
 }
 
 const KEY_MAP: Record<string, string> = {
@@ -46,6 +47,7 @@ export class Input {
     zoomDelta: 0,
     toggleCamera: false,
     toggleHelp: false,
+    toggleVehicle: false,
   }
 
   constructor(element: HTMLElement) {
@@ -57,6 +59,7 @@ export class Input {
       }
       if (event.code === 'KeyC') this.state.toggleCamera = true
       if (event.code === 'KeyH') this.state.toggleHelp = true
+      if (event.code === 'KeyV') this.state.toggleVehicle = true
     })
 
     window.addEventListener('keyup', (event) => {
@@ -148,6 +151,12 @@ export class Input {
   consumeHelpToggle() {
     const value = this.state.toggleHelp
     this.state.toggleHelp = false
+    return value
+  }
+
+  consumeVehicleToggle() {
+    const value = this.state.toggleVehicle
+    this.state.toggleVehicle = false
     return value
   }
 }

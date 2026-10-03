@@ -9,8 +9,8 @@
  * every client, so the server only has to relay each connection's id, colour
  * and pose. Endpoints:
  *
- *   GET  /api/stream?id=<uuid>&color=<0-7>[&x&z&h]  opens the SSE stream, and *is* the session
- *   POST /api/state?id=<uuid>  body {x, z, h, s}     -> 204
+ *   GET  /api/stream?id=<uuid>&color=<0-7>&kind=<0-1>[&x&z&h]  opens the SSE stream, and *is* the session
+ *   POST /api/state?id=<uuid>  body {x, z, h, s, kind}         -> 204
  *
  * NOTE: this file does not hot-reload. The middleware is installed once when the
  * Vite server boots, so restart `pnpm dev` after editing it.
@@ -28,6 +28,8 @@ const POSITION_LIMIT = 250
 // Above MAX_SPEED (32) and MAX_REVERSE (13) in src/car/tuning.ts.
 const SPEED_LIMIT = 35
 const COLOUR_COUNT = 8
+// Keep in sync with VEHICLE_CODE in src/net/protocol.ts (car = 0, bike = 1).
+const VEHICLE_CODES = [0, 1]
 const ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/
 
 const SSE_HEADERS = {
@@ -38,7 +40,7 @@ const SSE_HEADERS = {
   'X-Accel-Buffering': 'no',
 }
 
-/** @type {Map<string, { id: string, color: number, res: import('node:http').ServerResponse, x: number, z: number, h: number, s: number, dirty: boolean, lastSeen: number }>} */
+/** id, color, res, x, z, h, s, kind, dirty, lastSeen */
 const sessions = new Map()
 
 const clamp = (value, limit) => Math.max(-limit, Math.min(limit, value))
@@ -57,6 +59,13 @@ function angle(value) {
 }
 
 const round = (value) => Math.round(value * 1000) / 1000
+
+/** Vehicle code, validated. Unknown or missing means 0 (car). */
+function vehicleCode(value) {
+  const code = typeof value === 'string' ? Number(value) : value
+  if (!Number.isInteger(code) || !VEHICLE_CODES.includes(code)) return 0
+  return code
+}
 
 function readId(url) {
   const id = url.searchParams.get('id')
@@ -88,7 +97,15 @@ function broadcast(event, data, exceptId) {
 }
 
 function wirePlayer(session) {
-  return { id: session.id, color: session.color, x: session.x, z: session.z, h: session.h, s: session.s }
+  return {
+    id: session.id,
+    color: session.color,
+    kind: session.kind,
+    x: session.x,
+    z: session.z,
+    h: session.h,
+    s: session.s,
+  }
 }
 
 function drop(session) {
@@ -134,6 +151,7 @@ function openStream(req, res, url) {
   const session = {
     id,
     color: Number.isFinite(rawColour) ? clamp(Math.round(rawColour), 0, COLOUR_COUNT - 1) : 0,
+    kind: vehicleCode(url.searchParams.get('kind')),
     res,
     // The client sends its spawn on the URL so peers never see a car sitting at
     // the origin for one tick before the first state POST lands.
@@ -219,6 +237,9 @@ async function acceptState(req, res, url) {
   session.z = z
   session.h = h
   session.s = s
+  // Vehicle swaps ride along on the ordinary 12 Hz state, so swapping needs no
+  // extra round trip and peers see it on the next tick.
+  session.kind = vehicleCode(body.kind)
   session.dirty = true
   session.lastSeen = Date.now()
 
@@ -252,7 +273,13 @@ const tick = setInterval(() => {
   for (const session of sessions.values()) {
     if (!session.dirty) continue
     session.dirty = false
-    states[session.id] = [round(session.x), round(session.z), round(session.h), round(session.s)]
+    states[session.id] = [
+      round(session.x),
+      round(session.z),
+      round(session.h),
+      round(session.s),
+      session.kind,
+    ]
     count += 1
   }
   if (count > 0) broadcast('state', { t: 'state', p: states })

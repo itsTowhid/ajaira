@@ -1,22 +1,8 @@
 import * as THREE from 'three'
 import type { BoxCollider, CircleCollider } from '../city/layout'
 import { CITY_HALF } from '../city/layout'
-import type { ToyCar } from './ToyCar'
-import {
-  ACCELERATION,
-  BRAKE_FORCE,
-  COAST_DRAG,
-  IDLE_DRAG,
-  MAX_REVERSE,
-  MAX_SPEED,
-  POSE_RATE,
-  ROLL_PER_STEER,
-  STEER_RATE,
-  steerLimitFor,
-  TURN_DIVISOR,
-} from './tuning'
-
-const BODY_HALF_WIDTH = 1.05
+import type { Vehicle } from './vehicle'
+import { CAR_PROFILE, POSE_RATE, steerLimitFor, type VehicleProfile } from './tuning'
 
 // Keep in sync with POSITION_LIMIT in server/net.mjs — the relay rejects anything
 // further out, so the car must never get there on its own.
@@ -56,7 +42,11 @@ export class CarController {
   private bobTime = 0
   private wheelAngle = 0
 
-  constructor(private car: ToyCar, spawn: CarSpawn = DEFAULT_SPAWN) {
+  constructor(
+    private car: Vehicle,
+    spawn: CarSpawn = DEFAULT_SPAWN,
+    readonly profile: VehicleProfile = CAR_PROFILE,
+  ) {
     this.position.set(spawn.x, 0, spawn.z)
     this.heading = spawn.heading
     this.writePose(0)
@@ -82,27 +72,28 @@ export class CarController {
     this.breakableHits.clear()
     this.trafficHits.clear()
 
-    const speedRatio = Math.min(1, Math.abs(this.speed) / MAX_SPEED)
-    const steerLimit = steerLimitFor(speedRatio)
+    const p = this.profile
+    const speedRatio = Math.min(1, Math.abs(this.speed) / p.maxSpeed)
+    const steerLimit = steerLimitFor(speedRatio, p)
     // Screen-right is world -X here, so a right press needs a negative yaw.
     const targetSteer = -input.steer * steerLimit
-    this.steerAngle += (targetSteer - this.steerAngle) * Math.min(1, STEER_RATE * step)
+    this.steerAngle += (targetSteer - this.steerAngle) * Math.min(1, p.steerRate * step)
 
     if (input.brake) {
-      const reduce = Math.sign(this.speed) * BRAKE_FORCE * step
+      const reduce = Math.sign(this.speed) * p.brakeForce * step
       this.speed = Math.abs(this.speed) < Math.abs(reduce) ? 0 : this.speed - reduce
     } else if (input.throttle !== 0) {
-      this.speed += input.throttle * ACCELERATION * step
+      this.speed += input.throttle * p.acceleration * step
       this.speed =
         input.throttle > 0
-          ? Math.min(this.speed, MAX_SPEED)
-          : Math.max(this.speed, -MAX_REVERSE)
+          ? Math.min(this.speed, p.maxSpeed)
+          : Math.max(this.speed, -p.maxReverse)
     } else {
-      const drag = (COAST_DRAG + IDLE_DRAG * (1 - speedRatio)) * step
+      const drag = (p.coastDrag + p.idleDrag * (1 - speedRatio)) * step
       this.speed = Math.abs(this.speed) < drag ? 0 : this.speed - Math.sign(this.speed) * drag
     }
 
-    this.heading += (this.speed / TURN_DIVISOR) * Math.tan(this.steerAngle) * step
+    this.heading += (this.speed / p.turnDivisor) * Math.tan(this.steerAngle) * step
 
     const forward = new THREE.Vector3(Math.sin(this.heading), 0, Math.cos(this.heading))
     this.position.addScaledVector(forward, this.speed * step)
@@ -111,8 +102,8 @@ export class CarController {
     this.position.x = THREE.MathUtils.clamp(this.position.x, -DRIVE_LIMIT, DRIVE_LIMIT)
     this.position.z = THREE.MathUtils.clamp(this.position.z, -DRIVE_LIMIT, DRIVE_LIMIT)
 
-    const targetRoll = this.steerAngle * speedRatio * ROLL_PER_STEER
-    const targetPitch = -input.throttle * speedRatio * 0.05
+    const targetRoll = this.steerAngle * speedRatio * p.leanPerSteer
+    const targetPitch = -input.throttle * speedRatio * p.maxPitch
     this.roll += (targetRoll - this.roll) * Math.min(1, POSE_RATE * step)
     this.pitch += (targetPitch - this.pitch) * Math.min(1, POSE_RATE * step)
     this.bobTime += step * (4 + speedRatio * 26)
@@ -128,19 +119,20 @@ export class CarController {
       heading: this.heading,
       roll: this.roll,
       pitch: this.pitch,
-      bobY: Math.sin(this.bobTime) * 0.015 * (0.3 + speedRatio),
+      bobY: Math.sin(this.bobTime) * this.profile.bobAmplitude * (0.3 + speedRatio),
       steer: this.steerAngle,
       wheel: this.wheelAngle,
     })
   }
 
   private resolveCollisions(boxes: BoxCollider[], circles: CircleCollider[], forward: THREE.Vector3) {
+    const halfWidth = this.profile.bodyHalfWidth
     const samples: [number, number][] = [
       [0, 1.5],
       [0, 0],
       [0, -1.5],
-      [BODY_HALF_WIDTH, 0.4],
-      [-BODY_HALF_WIDTH, 0.4],
+      [halfWidth, 0.4],
+      [-halfWidth, 0.4],
     ]
 
     const cos = Math.cos(this.heading)
@@ -151,8 +143,8 @@ export class CarController {
     const pushOutBox = (px: number, pz: number, box: BoxCollider) => {
       const dx = this.position.x + px - box.x
       const dz = this.position.z + pz - box.z
-      const overlapX = box.hw + BODY_HALF_WIDTH - Math.abs(dx)
-      const overlapZ = box.hd + BODY_HALF_WIDTH - Math.abs(dz)
+      const overlapX = box.hw + halfWidth - Math.abs(dx)
+      const overlapZ = box.hd + halfWidth - Math.abs(dz)
       if (overlapX <= 0 || overlapZ <= 0) return false
       if (overlapX < overlapZ) {
         this.position.x += Math.sign(dx || 1) * overlapX
@@ -183,7 +175,7 @@ export class CarController {
         const dx = px - circle.x
         const dz = pz - circle.z
         const distance = Math.hypot(dx, dz)
-        const minDistance = circle.r + BODY_HALF_WIDTH
+        const minDistance = circle.r + halfWidth
         if (distance >= minDistance || distance < 1e-5) continue
 
         const push = (minDistance - distance) * 1.02

@@ -27,6 +27,8 @@ export const PALETTE = {
   glass: 0x9fd0e8,
   windowLight: 0xfff2c4,
   tyre: 0x33363d,
+  rider: 0x33415a,
+  helmet: 0xe8e4dc,
 } as const
 
 const cache = new Map<string, THREE.Material>()
@@ -137,6 +139,10 @@ export const mat = {
 
   headlight: () =>
     standard('headlight', new THREE.MeshBasicMaterial({ color: 0xfff6d0 })),
+
+  rider: () => standard('rider', new THREE.MeshLambertMaterial({ color: PALETTE.rider })),
+
+  helmet: () => standard('helmet', new THREE.MeshLambertMaterial({ color: PALETTE.helmet })),
 
   taillight: () =>
     standard('taillight', new THREE.MeshBasicMaterial({ color: 0xff5a4a })),

@@ -16,6 +16,7 @@ export interface RemoteBlip {
 export class Hud {
   private readonly speedEl = document.querySelector<HTMLSpanElement>('#speed')!
   private readonly gearEl = document.querySelector<HTMLSpanElement>('#gear')!
+  private readonly vehicleEl = document.querySelector<HTMLSpanElement>('#vehicle')!
   private readonly smashEl = document.querySelector<HTMLSpanElement>('#smashed')!
   private readonly hintEl = document.querySelector<HTMLDivElement>('#hint')!
   private readonly netEl = document.querySelector<HTMLSpanElement>('#net-value')!
@@ -56,6 +57,12 @@ export class Hud {
     this.gearEl.textContent = gear
     this.smashEl.textContent = String(smashed)
     this.drawMap(position, heading, remotes)
+  }
+
+  /** Which ride we're on. Separate from `update` so it only touches the DOM on a swap. */
+  setVehicle(label: string) {
+    if (this.vehicleEl.textContent === label) return
+    this.vehicleEl.textContent = label
   }
 
   /** Multiplayer pill. `count` is everybody else, so "solo" is a count of zero. */

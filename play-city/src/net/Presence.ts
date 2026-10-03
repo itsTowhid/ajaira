@@ -1,7 +1,7 @@
 import { GRID, LANE, ROAD_LINES, blockCenter } from '../city/layout'
 import { PALETTE } from '../city/materials'
 import type { CarSpawn, CarTelemetry } from '../car/CarController'
-import { TICK_MS, type NetStatus, type ServerEvent } from './protocol'
+import { TICK_MS, vehicleCode, vehicleKind, type NetStatus, type ServerEvent, type VehicleKind } from './protocol'
 
 const ID_KEY = 'play-city:player-id'
 const ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/
@@ -16,6 +16,7 @@ const KEEPALIVE_MS = 1000
 export interface RemoteState {
   id: string
   color: number
+  kind: VehicleKind
   x: number
   z: number
   h: number
@@ -88,10 +89,26 @@ function readEvent(data: string): ServerEvent | null {
   }
 }
 
-function toRemote(wire: { id: string; color: number; x: number; z: number; h: number; s: number }): RemoteState | null {
+function toRemote(wire: {
+  id: string
+  color: number
+  kind: number
+  x: number
+  z: number
+  h: number
+  s: number
+}): RemoteState | null {
   if (!wire || !ID_PATTERN.test(wire.id)) return null
   if (![wire.color, wire.x, wire.z, wire.h, wire.s].every(isFiniteNumber)) return null
-  return { id: wire.id, color: wire.color, x: wire.x, z: wire.z, h: wire.h, s: wire.s }
+  return {
+    id: wire.id,
+    color: wire.color,
+    kind: vehicleKind(wire.kind),
+    x: wire.x,
+    z: wire.z,
+    h: wire.h,
+    s: wire.s,
+  }
 }
 
 /**
@@ -104,6 +121,8 @@ export class Presence {
   readonly color: number = hashColor(this.id)
   readonly spawn: CarSpawn = pickSpawn()
 
+  /** What we are riding. Told to the network in every state POST. */
+  kind: VehicleKind = 'car'
   status: NetStatus = 'connecting'
   /** Replaced wholesale on `hello`, upserted on `join`/`state`, pruned on `leave`. */
   players = new Map<string, RemoteState>()
@@ -118,6 +137,18 @@ export class Presence {
 
   constructor() {
     this.connect()
+  }
+
+  /**
+   * Swap vehicles. Clears the movement baseline so the new ride is broadcast on
+   * the very next announce rather than after it has drifted past the epsilon.
+   */
+  setKind(kind: VehicleKind) {
+    if (kind === this.kind) return
+    this.kind = kind
+    this.lastX = Number.NaN
+    this.lastZ = Number.NaN
+    this.lastH = Number.NaN
   }
 
   /** Fire-and-forget. At most one message per TICK_MS, and only when something moved. */
@@ -141,6 +172,7 @@ export class Presence {
       z: telemetry.z,
       h: telemetry.h,
       s: telemetry.s,
+      kind: vehicleCode(this.kind),
     })
     void fetch(`/api/state?id=${encodeURIComponent(this.id)}`, {
       method: 'POST',
@@ -162,6 +194,7 @@ export class Presence {
       const query = new URLSearchParams({
         id: this.id,
         color: String(this.color),
+        kind: String(vehicleCode(this.kind)),
         x: String(this.spawn.x),
         z: String(this.spawn.z),
         h: String(this.spawn.heading),
@@ -222,6 +255,7 @@ export class Presence {
       existing.z = pose[1]
       existing.h = pose[2]
       existing.s = pose[3]
+      if (pose.length > 4) existing.kind = vehicleKind(pose[4])
     }
   }
 
