@@ -288,8 +288,11 @@ function endCheck() {
   if (!f1.alive || !f2.alive || timeLeft <= 0 && suddenDeath) {
     if (!f1.alive || !f2.alive) {
       over = true
-      banner.innerHTML = !f1.alive && !f2.alive ? 'DRAW — press R'
-        : f1.alive ? '🔵 YOU WIN — press R' : '🔴 CPU WINS — press R'
+      const text = !f1.alive && !f2.alive ? 'DRAW' : f1.alive ? '🔵 YOU WIN' : '🔴 CPU WINS'
+      // Tap/click target inside the banner — "press R" means nothing on mobile.
+      banner.innerHTML = `${text}<button id="banner-restart" class="banner__btn" type="button">Play again</button>`
+      banner.querySelector<HTMLButtonElement>('#banner-restart')
+        ?.addEventListener('click', () => { if (over) resetMatch() })
       banner.classList.remove('hidden')
     }
     return
@@ -356,24 +359,190 @@ function move(f: Fighter, dx: number, dz: number, dt: number) {
   }
 }
 
-// Simple bot: random walk, occasionally bombs.
+// ---------- CPU brain ----------
+// Belief model: every live bomb paints its blast footprint with its fuse time.
+// A cell is enterable only if there is ample fuse left to also walk back out.
+// The bot re-plans at ~6 Hz: flee if standing in danger, else bomb a good spot
+// (crates/player in the blast, escape verified) or walk toward crates/power-ups.
 let botDir = { x: 0, z: 0 }
-let botTimer = 0
-let botBombTimer = 2
+let botBombTimer = 1.5
+let botThink = 0
+let botGoal: { cx: number; cz: number } | null = null
+
+function botCell(f: Fighter): { cx: number; cz: number } {
+  return worldToCell(f.x, f.z)
+}
+
+/** Fuse time of the most urgent bomb covering each cell. */
+function dangerMap(): Map<string, number> {
+  const map = new Map<string, number>()
+  for (const b of bombs) {
+    const cells: [number, number][] = [[b.cx, b.cz]]
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      for (let i = 1; i <= b.range; i++) {
+        const cx = b.cx + dx * i, cz = b.cz + dz * i
+        if (cx < 0 || cz < 0 || cx >= COLS || cz >= ROWS || isPillar(cx, cz)) break
+        cells.push([cx, cz])
+        if (crates.has(`${cx},${cz}`)) break
+      }
+    }
+    for (const [cx, cz] of cells) {
+      const key = `${cx},${cz}`
+      const prev = map.get(key)
+      if (prev === undefined || b.t < prev) map.set(key, b.t)
+    }
+  }
+  return map
+}
+
+const BOT_DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+
+/**
+ * BFS from `start` across cells that are safe to enter (solid cells excluded,
+ * dangerous cells only when their fuse comfortably exceeds walk-in time).
+ * Returns hop distance per cell and, for the start cell's neighbours, which
+ * direction begins the shortest path there.
+ */
+function botBfs(start: { cx: number; cz: number }, danger: Map<string, number>) {
+  const dist = new Map<string, number>()
+  const first = new Map<string, [number, number]>()
+  const queue: { cx: number; cz: number }[] = [start]
+  dist.set(`${start.cx},${start.cz}`, 0)
+  for (let qi = 0; qi < queue.length; qi++) {
+    const cur = queue[qi]!
+    const curDist = dist.get(`${cur.cx},${cur.cz}`)!
+    for (const [dx, dz] of BOT_DIRS) {
+      const nx = cur.cx + dx, nz = cur.cz + dz
+      const key = `${nx},${nz}`
+      if (dist.has(key)) continue
+      if (nx < 0 || nz < 0 || nx >= COLS || nz >= ROWS) continue
+      if (solidCell(nx, nz)) continue
+      const dn = danger.get(key)
+      // Entering danger needs fuse >= walk-in + walk-out + margin.
+      if (dn !== undefined && dn < 0.55 * (curDist + 2) + 0.35) continue
+      dist.set(key, curDist + 1)
+      first.set(key, curDist === 0 ? [dx, dz] : first.get(`${cur.cx},${cur.cz}`)!)
+      queue.push({ cx: nx, cz: nz })
+    }
+  }
+  return { dist, first }
+}
+
+/** Value of bombing from (cx,cz): crates/player in the blast lanes. */
+function bombSpotScore(cx: number, cz: number, range: number): number {
+  let score = 0
+  const pc = f1.alive ? botCell(f1) : null
+  for (const [dx, dz] of BOT_DIRS) {
+    for (let i = 1; i <= range; i++) {
+      const tx = cx + dx * i, tz = cz + dz * i
+      if (tx < 0 || tz < 0 || tx >= COLS || tz >= ROWS || isPillar(tx, tz)) break
+      if (crates.has(`${tx},${tz}`)) { score += 10 - i; break }
+      if (pc && tx === pc.cx && tz === pc.cz) score += 16 - i * 2
+    }
+  }
+  return score
+}
+
+/** Would we survive dropping a bomb at (cx,cz) right now? */
+function hasEscapeAfterBomb(cx: number, cz: number, range: number, danger: Map<string, number>): boolean {
+  const imagined = new Map(danger)
+  imagined.set(`${cx},${cz}`, 2.6)
+  for (const [dx, dz] of BOT_DIRS) {
+    for (let i = 1; i <= range; i++) {
+      const tx = cx + dx * i, tz = cz + dz * i
+      if (tx < 0 || tz < 0 || tx >= COLS || tz >= ROWS || isPillar(tx, tz)) break
+      imagined.set(`${tx},${tz}`, 2.6)
+      if (crates.has(`${tx},${tz}`)) break
+    }
+  }
+  const { dist } = botBfs({ cx, cz }, imagined)
+  // Some reachable cell must be outside every footprint.
+  for (const [key] of dist) if (!imagined.has(key)) return true
+  return false
+}
+
 function botUpdate(dt: number) {
   if (!f2.alive || over) return
-  botTimer -= dt; botBombTimer -= dt
-  if (botTimer <= 0) {
-    botTimer = 0.6 + Math.random() * 0.8
-    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [0, 0]]
-    const d = dirs[Math.floor(Math.random() * dirs.length)]
-    botDir = { x: d[0], z: d[1] }
+  botThink -= dt
+  if (botBombTimer > 0) botBombTimer -= dt
+
+  const me = botCell(f2)
+  const danger = dangerMap()
+  const goalKey = botGoal ? `${botGoal.cx},${botGoal.cz}` : ''
+
+  // Re-plan at ~6 Hz, or immediately when the goal went dangerous/blocked.
+  if (botThink > 0 && botGoal && !danger.has(goalKey) && !solidCell(botGoal.cx, botGoal.cz)) {
+    if (botDir.x || botDir.z) move(f2, botDir.x, botDir.z, dt)
+    return
   }
+  botThink = 0.16
+
+  const inDanger = danger.has(`${me.cx},${me.cz}`)
+  let goal: { cx: number; cz: number } | null = null
+  let step: [number, number] | undefined
+
+  if (inDanger) {
+    // Flee to the nearest cell outside every blast footprint.
+    const { dist, first } = botBfs(me, danger)
+    let fleeKey: string | null = null
+    let fleeDist = Infinity
+    for (const [key, d] of dist) {
+      if (danger.has(key)) continue
+      if (d < fleeDist) { fleeDist = d; fleeKey = key }
+    }
+    if (fleeKey) {
+      const [gcx, gcz] = fleeKey.split(',').map(Number)
+      goal = { cx: gcx, cz: gcz }
+      step = first.get(fleeKey)
+    }
+  } else {
+    // Safe: bomb here if worthwhile and survivable, else walk to the best target.
+    const bombHere = f2.bombs > 0 && botBombTimer <= 0 && bombSpotScore(me.cx, me.cz, f2.range) >= 8
+      && hasEscapeAfterBomb(me.cx, me.cz, f2.range, danger)
+    if (bombHere) {
+      dropBomb(f2)
+      botBombTimer = 1.4 + Math.random() * 0.8
+      // Immediately flee our own bomb.
+      const { dist, first } = botBfs(me, dangerMap())
+      let fleeKey: string | null = null
+      let fleeDist = Infinity
+      for (const [key, d] of dist) {
+        if (dangerMap().has(key)) continue
+        if (d < fleeDist) { fleeDist = d; fleeKey = key }
+      }
+      if (fleeKey) {
+        const [gcx, gcz] = fleeKey.split(',').map(Number)
+        goal = { cx: gcx, cz: gcz }
+        step = first.get(fleeKey)
+      }
+    } else {
+      const { dist, first } = botBfs(me, danger)
+      let bestKey: string | null = null
+      let bestScore = -Infinity
+      for (const [key, d] of dist) {
+        if (d > 9) continue
+        const [cx, cz] = key.split(',').map(Number)
+        let s = -d * 0.8
+        if (powers.has(key)) s += 14
+        // Reward standing next to crates (a future bombing perch).
+        for (const [ax, az] of BOT_DIRS) if (crates.has(`${cx + ax},${cz + az}`)) { s += 2.5; break }
+        if (f1.alive) {
+          const pc = botCell(f1)
+          s += Math.max(0, 6 - (Math.abs(cx - pc.cx) + Math.abs(cz - pc.cz)))
+        }
+        if (s > bestScore) { bestScore = s; bestKey = key }
+      }
+      if (bestKey) {
+        const [gcx, gcz] = bestKey.split(',').map(Number)
+        goal = { cx: gcx, cz: gcz }
+        step = first.get(bestKey)
+      }
+    }
+  }
+
+  botGoal = goal
+  botDir = step ? { x: step[0], z: step[1] } : { x: 0, z: 0 }
   if (botDir.x || botDir.z) move(f2, botDir.x, botDir.z, dt)
-  if (botBombTimer <= 0) {
-    botBombTimer = 2 + Math.random() * 2
-    dropBomb(f2)
-  }
 }
 
 // ---------- loop ----------
