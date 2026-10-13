@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { TILE, generateTile, type Ramp, type Tile } from './tiles'
+import { heightAt as terrainHeightAt } from './terrain'
 import type { BoxCollider, CircleCollider } from '../city/layout'
 
 export class CountryWorld {
@@ -49,6 +50,11 @@ export class CountryWorld {
     const out: Ramp[] = []
     for (const tile of this.tiles.values()) out.push(...tile.ramps)
     return out
+  }
+
+  /** Rideable terrain height at a world point (roads flatten, fields roll). */
+  heightAt(x: number, z: number): number {
+    return terrainHeightAt(x, z)
   }
 
   update(dt: number): void {

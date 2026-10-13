@@ -43,9 +43,41 @@ const ground = new THREE.Mesh(
   new THREE.MeshLambertMaterial({ color: 0x7fc46b }),
 )
 ground.rotation.x = -Math.PI / 2
-ground.position.set(0, 0, 0)
+// Distant skirt below the lowest hollow so no gaps show past the tiles.
+ground.position.set(0, -8, 0)
 ground.receiveShadow = true
 scene.add(ground)
+
+// Drifting cloud puffs: 12 clusters of squashed icosahedrons scattered over a
+// 1200x1200 area that follows the car, wrapping so they never run out.
+const CLOUD_SPAN = 1200
+const cloudMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff })
+interface CloudPuff {
+  group: THREE.Group
+  baseX: number
+  baseZ: number
+}
+const cloudPuffs: CloudPuff[] = []
+for (let i = 0; i < 12; i++) {
+  const puff = new THREE.Group()
+  const lumps = 2 + Math.floor(Math.random() * 2)
+  for (let k = 0; k < lumps; k++) {
+    const lump = new THREE.Mesh(new THREE.IcosahedronGeometry(4 + Math.random() * 5, 0), cloudMaterial)
+    lump.position.set((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 8)
+    lump.scale.y = 0.55
+    puff.add(lump)
+  }
+  puff.position.y = 55 + Math.random() * 20
+  scene.add(puff)
+  cloudPuffs.push({
+    group: puff,
+    baseX: (Math.random() - 0.5) * CLOUD_SPAN,
+    baseZ: (Math.random() - 0.5) * CLOUD_SPAN,
+  })
+}
+let cloudDrift = 0
+const wrapCloud = (v: number): number =>
+  ((((v + CLOUD_SPAN / 2) % CLOUD_SPAN) + CLOUD_SPAN) % CLOUD_SPAN) - CLOUD_SPAN / 2
 
 const sun = new THREE.DirectionalLight(0xfff2d6, 2.5)
 sun.position.set(60, 90, 40)
@@ -122,11 +154,11 @@ presence.onWrecked = (by) => {
   const killer = presence.players.get(by)
   hud.showWrecked(killer?.name ?? '')
   // Our own wreck arrives here, not through onHit — still deserves the blast.
-  bullets.blast(controller.position.x, controller.position.z)
+  bullets.blast(controller.position.x, controller.position.z, controller.airY + 1.2)
 }
 
 presence.onShot = (shot) => {
-  bullets.spawn(shot.x, shot.z, shot.h, false)
+  bullets.spawn(shot.x, shot.z, shot.h, false, world.heightAt(shot.x, shot.z) + 1.25)
   remoteCars.flashAt(shot.by)
 }
 
@@ -138,8 +170,8 @@ presence.onHit = (feedback) => {
   // is not in the roster, so a wreck with us as the target uses our position.
   if (feedback.wrecked) {
     const victim = presence.players.get(feedback.target)
-    if (victim) bullets.blast(victim.x, victim.z)
-    else bullets.blast(controller.position.x, controller.position.z)
+    if (victim) bullets.blast(victim.x, victim.z, world.heightAt(victim.x, victim.z) + 1.2)
+    else bullets.blast(controller.position.x, controller.position.z, controller.airY + 1.2)
   }
 }
 
@@ -162,6 +194,9 @@ function net(action: () => void) {
 
 const clock = new THREE.Clock()
 const sunOffset = new THREE.Vector3(70, 110, 50)
+// Scratch target so the chase camera follows the car's terrain height
+// (controller.position itself stays at y=0; height lives in airY).
+const camTarget = new THREE.Vector3()
 
 function resize() {
   const width = window.innerWidth
@@ -186,7 +221,7 @@ function frame() {
   if (state.fire && !dead && performance.now() - lastFireAt >= ROF_MS) {
     lastFireAt = performance.now()
     vehicle.gun.muzzle(muzzle)
-    bullets.spawn(muzzle.x, muzzle.z, controller.heading, true)
+    bullets.spawn(muzzle.x, muzzle.z, controller.heading, true, muzzle.y)
     vehicle.gun.flashMuzzle()
     net(() => presence.fire(muzzle.x, muzzle.z, controller.heading))
   }
@@ -197,11 +232,10 @@ function frame() {
   const circles = world.circles
 
   if (!dead) {
-    controller.update(dt, state, boxes, [...circles, ...targetColliders])
-
-    // Wooden ramps: ride up the wedge, launch off the lip. groundY is
-    // recomputed from scratch every frame so driving off sideways falls.
-    controller.groundY = 0
+    // Ride the terrain: ground level first, then ramps add their wedge on top
+    // (ramp meshes sit on the terrain, so physics must too).
+    const tY = world.heightAt(controller.position.x, controller.position.z)
+    controller.groundY = tY
     for (const ramp of world.ramps) {
       const along =
         ramp.axis === 'x' ? controller.position.x - ramp.x : controller.position.z - ramp.z
@@ -218,10 +252,42 @@ function frame() {
       if (Math.sign(f) !== ramp.dir) continue
       const progress = (signed + 5.5) / 11
       const height = 2.4 * Math.min(1, Math.max(0, progress))
-      controller.groundY = Math.max(controller.groundY, height)
+      controller.groundY = Math.max(controller.groundY, tY + height)
       if (progress >= 1 && !controller.isAirborne && Math.abs(controller.speed) > 4) {
         controller.launch(Math.min(26, Math.max(9, controller.speed * 0.5)))
       }
+    }
+    controller.update(dt, state, boxes, [...circles, ...targetColliders])
+
+    // Tilt the body to match the hillside. Pitch positive = nose down, roll
+    // positive = right side up; both zeroed while airborne.
+    if (controller.isAirborne) {
+      controller.slopePitch = 0
+      controller.slopeRoll = 0
+    } else {
+      const h = controller.heading
+      const fx = Math.sin(h)
+      const fz = Math.cos(h)
+      const hF = world.heightAt(
+        controller.position.x + fx * 2.2,
+        controller.position.z + fz * 2.2,
+      )
+      const hB = world.heightAt(
+        controller.position.x - fx * 2.2,
+        controller.position.z - fz * 2.2,
+      )
+      const rx = Math.cos(h)
+      const rz = -Math.sin(h)
+      const hR = world.heightAt(
+        controller.position.x + rx * 1.4,
+        controller.position.z + rz * 1.4,
+      )
+      const hL = world.heightAt(
+        controller.position.x - rx * 1.4,
+        controller.position.z - rz * 1.4,
+      )
+      controller.slopePitch = -Math.atan2(hF - hB, 4.4)
+      controller.slopeRoll = Math.atan2(hR - hL, 2.8)
     }
   }
 
@@ -247,9 +313,10 @@ function frame() {
   if (input.consumeHelpToggle()) hud.toggleHint()
   if (input.consumeVehicleToggle() && !dead) mountVehicle(otherVehicle(kind))
 
+  camTarget.set(controller.position.x, controller.airY, controller.position.z)
   chase.update(
     dt,
-    controller.position,
+    camTarget,
     controller.heading,
     controller.speed,
     input.consumeDrag(),
@@ -262,6 +329,13 @@ function frame() {
 
   ground.position.x = controller.position.x
   ground.position.z = controller.position.z
+
+  // Clouds drift +x and wrap around the car in a 1200-wide window.
+  cloudDrift += 2.5 * dt
+  for (const puff of cloudPuffs) {
+    puff.group.position.x = controller.position.x + wrapCloud(puff.baseX + cloudDrift)
+    puff.group.position.z = controller.position.z + wrapCloud(puff.baseZ)
+  }
 
   hud.update(
     controller.kmh,

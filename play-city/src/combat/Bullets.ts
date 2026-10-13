@@ -19,6 +19,7 @@ export interface TargetCollider extends CircleCollider {
 
 interface Bullet {
   x: number
+  y: number
   z: number
   vx: number
   vz: number
@@ -59,6 +60,8 @@ interface Debris {
   spin: THREE.Vector3
   life: number
   maxLife: number
+  /** Terrain height here + chunk rest offset; chunks land on hills, not y=0. */
+  floor: number
 }
 
 export interface BulletHit {
@@ -131,18 +134,20 @@ export class Bullets {
 
   /**
    * Fire from a world-space muzzle point along `heading` (+Z at 0, matching the
-   * vehicles). `mine` marks bullets this client claims hits for.
+   * vehicles). `mine` marks bullets this client claims hits for. `y0` is the
+   * muzzle world height — bullets fly level at that height over the hills.
    */
-  spawn(x: number, z: number, heading: number, mine: boolean) {
+  spawn(x: number, z: number, heading: number, mine: boolean, y0 = 1.25) {
     this.forward.set(Math.sin(heading), 0, Math.cos(heading))
     const bullet = this.acquire()
     bullet.x = x + this.forward.x * 0.9
     bullet.z = z + this.forward.z * 0.9
+    bullet.y = y0
     bullet.vx = this.forward.x * BULLET_SPEED
     bullet.vz = this.forward.z * BULLET_SPEED
     bullet.ttl = BULLET_TTL_S
     bullet.mine = mine
-    bullet.mesh.position.set(bullet.x, 1.25, bullet.z)
+    bullet.mesh.position.set(bullet.x, bullet.y, bullet.z)
     bullet.mesh.rotation.y = heading
     bullet.mesh.visible = true
   }
@@ -168,17 +173,19 @@ export class Bullets {
   /**
    * Big explosion for a wrecked car: the small impact blast scaled x2.5 with
    * more debris. Purely cosmetic — the relay already decided who died.
+   * `y` is the blast height (car height on the hills).
    */
-  blast(x: number, z: number) {
-    this.detonate(x, z, 2.5, 16)
+  blast(x: number, z: number, y = 1.2) {
+    this.detonate(x, z, 2.5, 16, y)
   }
 
   /**
    * One blast: a flash sphere that pops and fades, a shockwave ring sliding
    * out across the ground, and a burst of tumbling debris. `scale` grows every
    * radius; impacts call this small, wrecks call it big through `blast`.
+   * `y` anchors the effect to the hillside it happened on.
    */
-  private detonate(x: number, z: number, scale: number, chunks: number) {
+  private detonate(x: number, z: number, scale: number, chunks: number, y = 1.2) {
     let flash = this.flashes.find((candidate) => !candidate.mesh.visible)
     if (!flash) {
       if (this.flashes.length >= MAX_FLASHES) return
@@ -188,7 +195,7 @@ export class Bullets {
       flash = { mesh, life: 0, maxLife: FLASH_TTL, from: 0.7, to: 2.2 }
       this.flashes.push(flash)
     }
-    flash.mesh.position.set(x, 1.2, z)
+    flash.mesh.position.set(x, y, z)
     flash.maxLife = FLASH_TTL * (scale > 1 ? 1.6 : 1)
     flash.life = flash.maxLife
     flash.from = 0.7 * scale
@@ -209,7 +216,7 @@ export class Bullets {
       }
     }
     if (ring) {
-      ring.mesh.position.set(x, 0.15, z)
+      ring.mesh.position.set(x, y - 1.05, z)
       ring.maxLife = RING_TTL * (scale > 1 ? 1.6 : 1)
       ring.life = ring.maxLife
       ring.from = 1 * scale
@@ -229,14 +236,15 @@ export class Bullets {
         const mesh = new THREE.Mesh(this.debrisGeometry, material)
         mesh.visible = false
         this.group.add(mesh)
-        chunk = { mesh, vel: new THREE.Vector3(), spin: new THREE.Vector3(), life: 0, maxLife: DEBRIS_TTL }
+        chunk = { mesh, vel: new THREE.Vector3(), spin: new THREE.Vector3(), life: 0, maxLife: DEBRIS_TTL, floor: y - 1.01 }
         this.debris.push(chunk)
       }
+      chunk.floor = y - 1.01
       const angle = Math.random() * Math.PI * 2
       const outward = (3 + Math.random() * 6) * scale
       chunk.vel.set(Math.cos(angle) * outward, (5 + Math.random() * 6) * scale, Math.sin(angle) * outward)
       chunk.spin.set((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14)
-      chunk.mesh.position.set(x, 1.1, z)
+      chunk.mesh.position.set(x, y - 0.1, z)
       chunk.mesh.scale.setScalar(scale * (0.7 + Math.random() * 0.7))
       chunk.mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0)
       ;(chunk.mesh.material as THREE.MeshLambertMaterial).opacity = 1
@@ -280,7 +288,7 @@ export class Bullets {
         bullet.mesh.visible = false
         continue
       }
-      bullet.mesh.position.set(bullet.x, 1.25, bullet.z)
+      bullet.mesh.position.set(bullet.x, bullet.y, bullet.z)
     }
 
     for (const spark of this.sparks) {
@@ -332,9 +340,9 @@ export class Bullets {
       chunk.mesh.position.x += chunk.vel.x * dt
       chunk.mesh.position.y += chunk.vel.y * dt
       chunk.mesh.position.z += chunk.vel.z * dt
-      // Chunks land on the table and stop, then fade out with the blast.
-      if (chunk.mesh.position.y < 0.19) {
-        chunk.mesh.position.y = 0.19
+      // Chunks land on the hillside and stop, then fade out with the blast.
+      if (chunk.mesh.position.y < chunk.floor) {
+        chunk.mesh.position.y = chunk.floor
         chunk.vel.set(0, 0, 0)
         chunk.spin.multiplyScalar(1 - Math.min(1, 6 * dt))
       }
@@ -446,7 +454,7 @@ export class Bullets {
 
   /** Kill the bullet in a small blast: flash, ring, and a few chunks. */
   private impact(bullet: Bullet) {
-    this.detonate(bullet.x, bullet.z, 1, 7)
+    this.detonate(bullet.x, bullet.z, 1, 7, bullet.y)
     bullet.ttl = 0
     bullet.mesh.visible = false
   }
@@ -458,7 +466,7 @@ export class Bullets {
       const mesh = new THREE.Mesh(this.tracerGeometry, this.tracerMaterial)
       mesh.visible = false
       this.group.add(mesh)
-      const bullet: Bullet = { x: 0, z: 0, vx: 0, vz: 0, ttl: 0, mine: false, mesh }
+      const bullet: Bullet = { x: 0, y: 1.25, z: 0, vx: 0, vz: 0, ttl: 0, mine: false, mesh }
       this.bullets.push(bullet)
       return bullet
     }

@@ -40,6 +40,10 @@ export class CarController {
   private vy = 0
   private airborne = false
   groundY = 0
+  /** Terrain tilt sampled in main.ts: pitch positive = nose down. */
+  slopePitch = 0
+  /** Terrain tilt sampled in main.ts: roll positive = right side up. */
+  slopeRoll = 0
 
   constructor(
     private car: Vehicle,
@@ -65,7 +69,7 @@ export class CarController {
   launch(v: number) {
     this.airborne = true
     this.vy = v
-    this.y = Math.max(this.y, 0.1)
+    this.y = Math.max(this.y, this.groundY + 0.1)
   }
 
   get airY(): number {
@@ -122,19 +126,13 @@ export class CarController {
     if (this.airborne) {
       this.y += this.vy * step
       this.vy -= 22 * step
-      if (this.y <= 0 && this.groundY <= 0) {
-        this.y = 0
-        this.vy = 0
-        this.airborne = false
-        this.speed *= 0.94
-      } else if (this.y <= this.groundY && this.vy < 0) {
+      if (this.y <= this.groundY && this.vy < 0) {
         this.y = this.groundY
         this.vy = 0
         this.airborne = false
         this.speed *= 0.94
       }
     }
-    this.y = Math.max(0, this.y)
 
     const targetRoll = this.steerAngle * speedRatio * p.leanPerSteer
     const targetPitch = -input.throttle * speedRatio * p.maxPitch
@@ -152,8 +150,8 @@ export class CarController {
       y: this.y,
       z: this.position.z,
       heading: this.heading,
-      roll: this.roll,
-      pitch: this.pitch,
+      roll: this.roll + this.slopeRoll,
+      pitch: this.pitch + this.slopePitch,
       bobY: Math.sin(this.bobTime) * this.profile.bobAmplitude * (0.3 + speedRatio),
       steer: this.steerAngle,
       wheel: this.wheelAngle,
