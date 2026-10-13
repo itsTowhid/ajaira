@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 
 const MODES = [
-  { name: 'chase', distance: 12, pitch: 0.24, lookAhead: 10, speedBonus: 16 },
+  { name: 'chase', distance: 9.5, pitch: 0.47, lookAhead: 8, speedBonus: 10 },
   { name: 'close', distance: 8, pitch: 0.16, lookAhead: 10, speedBonus: 12 },
   { name: 'aerial', distance: 46, pitch: 0.95, lookAhead: 2, speedBonus: 20 },
   { name: 'map', distance: 150, pitch: 1.5, lookAhead: 0, speedBonus: 0 },

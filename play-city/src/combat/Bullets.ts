@@ -263,12 +263,12 @@ export class Bullets {
     for (const bullet of this.bullets) {
       if (!bullet.mesh.visible) continue
 
-      // Sub-step so a 420 u/s bullet cannot tunnel through a 1.8 u lamp
-      // collider in a single 16 ms frame: 420 * 0.003 advances ~1.26 units
+      // Sub-step so a 140 u/s bullet cannot tunnel through a 1.8 u lamp
+      // collider in a single 16 ms frame: 140 * 0.003 advances 0.42 units
       // per slice, kept under ~1.4 so no collider is ever skipped over.
       let remaining = dt
       while (remaining > 0 && bullet.ttl > 0) {
-        const step = Math.min(remaining, 0.002)
+        const step = Math.min(remaining, 0.003)
         remaining -= step
         bullet.x += bullet.vx * step
         bullet.z += bullet.vz * step

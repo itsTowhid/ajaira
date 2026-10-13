@@ -93,7 +93,7 @@ export class ToyBike {
 
   /** The single visual path, same contract as `ToyCar.setPose`. */
   setPose(pose: CarPose) {
-    this.group.position.set(pose.x, 0, pose.z)
+    this.group.position.set(pose.x, pose.y ?? 0, pose.z)
     this.group.rotation.y = pose.heading
     this.lean.rotation.z = pose.roll
     this.lean.position.y = WHEEL_RADIUS + pose.bobY

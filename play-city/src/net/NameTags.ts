@@ -17,9 +17,9 @@ const TAG_HEIGHT = 1.3
 /** Above the roof / rider's helmet. */
 const LIFT = 3.3
 /** Hide tags beyond this distance — dots on the minimap already say who's where. */
-const MAX_DISTANCE = 360
-const FADE_START = 240
-const FADE_END = 340
+const MAX_DISTANCE = 90
+const FADE_START = 60
+const FADE_END = 85
 /** Draw distance above the camera far plane minus fog is irrelevant; tags live close. */
 const MAX_RENDER_DIST = 400
 

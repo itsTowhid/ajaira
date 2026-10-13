@@ -5,6 +5,8 @@
  */
 export interface CarPose {
   x: number
+  /** World height offset, metres. Defaults to 0 (ramps / jumps). */
+  y?: number
   z: number
   /** Yaw about Y, radians. 0 points down +Z. */
   heading: number

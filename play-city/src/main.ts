@@ -1,9 +1,6 @@
 import * as THREE from 'three'
-import { Breakables } from './city/breakables'
-import { buildCity } from './city/build'
-import { generateCityLayout } from './city/layout'
-import { Traffic } from './city/traffic'
 import { PALETTE } from './city/materials'
+import { CountryWorld } from './world/CountryWorld'
 import { CarController } from './car/CarController'
 import { createVehicle, profileFor, vehicleLabel, type Vehicle } from './car/vehicle'
 import { ChaseCamera } from './ChaseCamera'
@@ -11,6 +8,7 @@ import { Hud } from './Hud'
 import { Input } from './Input'
 import { mountGarage } from './garage'
 import { Bullets } from './combat/Bullets'
+import { Speedlines } from './fx/Speedlines'
 import { Presence } from './net/Presence'
 import { RemoteCars } from './net/RemoteCars'
 import { FIRE_RATE, MAX_HP, SPAWN_PROTECT_S, otherVehicle, type VehicleKind } from './net/protocol'
@@ -32,31 +30,33 @@ renderer.toneMappingExposure = 1.05
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(PALETTE.sky)
-scene.fog = new THREE.Fog(PALETTE.fog, 900, 2500)
+scene.fog = new THREE.Fog(PALETTE.fog, 220, 620)
 
-const camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.5, 6400)
+const camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.5, 1600)
 camera.position.set(0, 12, 80)
 
-const layout = generateCityLayout()
-scene.add(buildCity(layout))
+const world = new CountryWorld()
+scene.add(world.group)
 
-const breakables = new Breakables(layout)
-scene.add(breakables.group)
-
-const traffic = new Traffic()
-scene.add(traffic.group)
-const staticCircles = [...layout.circles]
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(4000, 4000),
+  new THREE.MeshLambertMaterial({ color: 0x7fc46b }),
+)
+ground.rotation.x = -Math.PI / 2
+ground.position.set(0, 0, 0)
+ground.receiveShadow = true
+scene.add(ground)
 
 const sun = new THREE.DirectionalLight(0xfff2d6, 2.5)
 sun.position.set(60, 90, 40)
 sun.castShadow = true
 sun.shadow.mapSize.set(2048, 2048)
 sun.shadow.camera.near = 1
-sun.shadow.camera.far = 1300
-sun.shadow.camera.left = -280
-sun.shadow.camera.right = 280
-sun.shadow.camera.top = 280
-sun.shadow.camera.bottom = -280
+sun.shadow.camera.far = 320
+sun.shadow.camera.left = -70
+sun.shadow.camera.right = 70
+sun.shadow.camera.top = 70
+sun.shadow.camera.bottom = -70
 sun.shadow.bias = -0.0008
 scene.add(sun)
 scene.add(sun.target)
@@ -80,11 +80,12 @@ let controller = new CarController(vehicle, presence.spawn, profileFor(kind))
 
 const chase = new ChaseCamera(camera)
 const input = new Input(canvas)
-const hud = new Hud(layout)
+const hud = new Hud()
+const speedlines = new Speedlines()
 hud.setVehicle(vehicleLabel(kind))
 hud.setHealth(presence.hp, MAX_HP)
 
-// Combat. Bullets live in the city like everything else; the respawn timer
+// Combat. Bullets live in the world like everything else; the respawn timer
 // gates driving, shooting, and pose announcements while a wreck is on screen.
 const bullets = new Bullets()
 scene.add(bullets.group)
@@ -160,7 +161,7 @@ function net(action: () => void) {
 }
 
 const clock = new THREE.Clock()
-const sunOffset = new THREE.Vector3(280, 440, 200)
+const sunOffset = new THREE.Vector3(70, 110, 50)
 
 function resize() {
   const width = window.innerWidth
@@ -190,53 +191,54 @@ function frame() {
     net(() => presence.fire(muzzle.x, muzzle.z, controller.heading))
   }
 
+  world.ensure(controller.position.x, controller.position.z)
+  world.update(dt)
+  const boxes = world.boxes
+  const circles = world.circles
+
   if (!dead) {
-    controller.update(dt, state, layout.colliders, [
-      ...staticCircles,
-      ...traffic.colliders,
-      ...targetColliders,
-    ])
+    controller.update(dt, state, boxes, [...circles, ...targetColliders])
+
+    // Wooden ramps: ride up the wedge, launch off the lip. groundY is
+    // recomputed from scratch every frame so driving off sideways falls.
+    controller.groundY = 0
+    for (const ramp of world.ramps) {
+      const along =
+        ramp.axis === 'x' ? controller.position.x - ramp.x : controller.position.z - ramp.z
+      const across =
+        ramp.axis === 'x' ? controller.position.z - ramp.z : controller.position.x - ramp.x
+      if (Math.abs(across) > 3.5) continue
+      const signed = along * ramp.dir
+      // ~1m past the lip stays "on ramp" so a fast frame step still lands on
+      // progress >= 1 instead of tunnelling from ramp to dirt between frames.
+      if (signed < -5.5 || signed > 6.5) continue
+      // Only when travelling the intended way up the wedge.
+      const f =
+        ramp.axis === 'x' ? Math.sin(controller.heading) : Math.cos(controller.heading)
+      if (Math.sign(f) !== ramp.dir) continue
+      const progress = (signed + 5.5) / 11
+      const height = 2.4 * Math.min(1, Math.max(0, progress))
+      controller.groundY = Math.max(controller.groundY, height)
+      if (progress >= 1 && !controller.isAirborne && Math.abs(controller.speed) > 4) {
+        controller.launch(Math.min(26, Math.max(9, controller.speed * 0.5)))
+      }
+    }
   }
 
-  traffic.update(dt, controller.position.x, controller.position.z, controller.speed)
-  breakables.update(dt)
+  speedlines.draw(dead ? 0 : controller.kmh)
+
   vehicle.gun.update(dt)
 
   const bulletHits = bullets.update(
     dt,
-    layout.colliders,
-    [...staticCircles, ...traffic.colliders],
+    boxes,
+    circles,
     targetColliders,
     dead ? null : { x: controller.position.x, z: controller.position.z, r: 1.7 },
   )
   for (const hit of bulletHits) {
     if (!hit.mine) continue
     if (hit.remoteId) presence.claimHit(hit.remoteId, 10)
-    if (hit.breakable !== null) {
-      const spec = layout.breakables[hit.breakable]
-      // Bullet shove, x4 for the x4 city so debris flies like it used to.
-      if (spec) breakables.break(spec, hit.x, hit.z, Math.sin(hit.h) * 24, Math.cos(hit.h) * 24)
-    }
-    if (hit.trafficIndex !== null) traffic.knock(hit.trafficIndex, Math.sin(hit.h) * 24, Math.cos(hit.h) * 24)
-  }
-
-  if (!dead) {
-    if (controller.breakableHits.size > 0) {
-      const pushX = Math.sin(controller.heading) * controller.speed * 0.45
-      const pushZ = Math.cos(controller.heading) * controller.speed * 0.45
-      for (const id of controller.breakableHits) {
-        const spec = layout.breakables[id]
-        if (spec) breakables.break(spec, controller.position.x, controller.position.z, pushX, pushZ)
-      }
-    }
-
-    for (const index of controller.trafficHits) {
-      traffic.knock(
-        index,
-        Math.sin(controller.heading) * controller.speed * 0.7,
-        Math.cos(controller.heading) * controller.speed * 0.7,
-      )
-    }
   }
 
   if (dead && performance.now() >= respawnAt) respawn()
@@ -258,12 +260,15 @@ function frame() {
   sun.target.position.copy(controller.position)
   sun.target.updateMatrixWorld()
 
+  ground.position.x = controller.position.x
+  ground.position.z = controller.position.z
+
   hud.update(
     controller.kmh,
     controller.gear,
     controller.position,
     controller.heading,
-    breakables.smashed,
+    0,
     remoteCars.blips,
   )
   hud.setHealth(presence.hp, MAX_HP)

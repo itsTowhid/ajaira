@@ -1,4 +1,3 @@
-import { BLOCK, CITY_HALF, CITY_SIZE, GRID, ROAD_W, type CityLayout } from './city/layout'
 import { PALETTE } from './city/materials'
 import type { NetStatus } from './net/protocol'
 
@@ -31,7 +30,6 @@ export class Hud {
   private readonly ctx: CanvasRenderingContext2D
 
   private hintVisible = true
-  private blocks: { x: number; z: number; kind: string }[] = []
   private netStatus: NetStatus = 'connecting'
   private netCount = -1
   private healthShown = -1
@@ -39,11 +37,8 @@ export class Hud {
   private flashLeft = 0
   private wreckCountdown: ReturnType<typeof setInterval> | null = null
 
-  constructor(layout: CityLayout) {
+  constructor() {
     this.ctx = this.mapCanvas.getContext('2d')!
-    for (const lot of layout.lots) {
-      this.blocks.push({ x: lot.centerX, z: lot.centerZ, kind: lot.kind })
-    }
     this.drawMapBase()
     window.setTimeout(() => {
       if (this.hintVisible) this.toggleHint()
@@ -136,33 +131,10 @@ export class Hud {
 
   private drawMapBase() {
     const size = this.mapCanvas.width
-    const scale = size / CITY_SIZE
     this.ctx.clearRect(0, 0, size, size)
 
-    this.ctx.fillStyle = '#2b2f38'
+    this.ctx.fillStyle = '#33412e'
     this.ctx.fillRect(0, 0, size, size)
-
-    this.ctx.fillStyle = '#454b57'
-    for (let i = 0; i <= GRID; i++) {
-      const offset = (-CITY_HALF + ROAD_W / 2 + i * (BLOCK + ROAD_W)) * scale + size / 2
-      this.ctx.fillRect(offset - ROAD_W / 2 * scale, 0, ROAD_W * scale, size)
-      this.ctx.fillRect(0, offset - ROAD_W / 2 * scale, size, ROAD_W * scale)
-    }
-
-    for (const block of this.blocks) {
-      this.ctx.fillStyle =
-        block.kind === 'parking'
-          ? '#5b6270'
-          : block.kind === 'park'
-            ? '#4c8a4a'
-            : block.kind === 'playground'
-              ? '#c96a5c'
-              : block.kind === 'plaza'
-                ? '#7d8ba0'
-                : '#8d8f99'
-      const w = BLOCK * scale
-      this.ctx.fillRect(block.x * scale + size / 2 - w / 2, block.z * scale + size / 2 - w / 2, w, w)
-    }
 
     this.mapBase = this.ctx.getImageData(0, 0, size, size)
   }
@@ -171,15 +143,18 @@ export class Hud {
 
   private drawMap(position: { x: number; z: number }, heading: number, remotes: readonly RemoteBlip[]) {
     const size = this.mapCanvas.width
-    const scale = size / CITY_SIZE
     this.ctx.putImageData(this.mapBase, 0, 0)
 
-    const toX = (x: number) => x * scale + size / 2
-    const toY = (z: number) => z * scale + size / 2
+    const scale = size / 280
+    const toX = (x: number) => size / 2 + (x - position.x) * scale
+    const toY = (z: number) => size / 2 + (z - position.z) * scale
 
     // Paint is only unique for the first few players, so the dot is what actually
     // tells two cars apart.
     for (const remote of remotes) {
+      const dx = remote.x - position.x
+      const dz = remote.z - position.z
+      if (Math.hypot(dx, dz) > 140) continue
       this.ctx.fillStyle = hexColor(remote.color)
       this.ctx.beginPath()
       this.ctx.arc(toX(remote.x), toY(remote.z), 3.5, 0, Math.PI * 2)

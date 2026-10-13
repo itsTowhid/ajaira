@@ -1,4 +1,3 @@
-import { GRID, LANE, ROAD_LINES, blockCenter } from '../city/layout'
 import { PALETTE } from '../city/materials'
 import type { CarSpawn, CarTelemetry } from '../car/CarController'
 import { MAX_HP, TICK_MS, vehicleCode, vehicleKind, type NetStatus, type ServerEvent, type VehicleKind } from './protocol'
@@ -66,8 +65,7 @@ export interface RemoteState {
   dead: boolean
 }
 
-const randInt = (min: number, max: number) =>
-  min + Math.floor(Math.random() * (max - min + 1))
+const randRange = (min: number, max: number) => min + Math.random() * (max - min)
 
 /**
  * `crypto.randomUUID` needs a secure context, and friends on the LAN reach this
@@ -105,17 +103,13 @@ function hashColor(id: string): number {
 }
 
 /**
- * A point on tarmac, in the correct lane, mirroring `laneOffset`/`headingFor` in
- * city/traffic.ts. With `MAX_REMOTE_CARS` slots, two players landing on the same
- * spot is rare and self-corrects within a second.
+ * A point in open countryside. Any nearby patch of grass will do.
  */
 function pickSpawn(): CarSpawn {
-  const road = ROAD_LINES[randInt(0, ROAD_LINES.length - 1)]
-  const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1
   return {
-    x: road + (dir > 0 ? -LANE : LANE),
-    z: blockCenter(randInt(0, GRID - 1)) + (Math.random() * 72 - 36),
-    heading: dir > 0 ? 0 : Math.PI,
+    x: randRange(-60, 60),
+    z: randRange(-60, 60),
+    heading: Math.random() * Math.PI * 2,
   }
 }
 

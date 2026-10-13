@@ -1,12 +1,7 @@
 import * as THREE from 'three'
 import type { BoxCollider, CircleCollider } from '../city/layout'
-import { CITY_HALF } from '../city/layout'
 import type { Vehicle } from './vehicle'
 import { CAR_PROFILE, POSE_RATE, steerLimitFor, type VehicleProfile } from './tuning'
-
-// Keep in sync with POSITION_LIMIT in server/net.mjs — the relay rejects anything
-// further out, so the car must never get there on its own.
-const DRIVE_LIMIT = CITY_HALF + 280
 
 export interface DriveInput {
   throttle: number
@@ -41,6 +36,11 @@ export class CarController {
   private bobTime = 0
   private wheelAngle = 0
 
+  private y = 0
+  private vy = 0
+  private airborne = false
+  groundY = 0
+
   constructor(
     private car: Vehicle,
     spawn: CarSpawn = DEFAULT_SPAWN,
@@ -59,6 +59,21 @@ export class CarController {
     if (this.speed > 0.4) return 'D'
     if (this.speed < -0.4) return 'R'
     return 'N'
+  }
+
+  /** Upward launch off a ramp lip. Keeps a small floor so the pose never z-fights the road. */
+  launch(v: number) {
+    this.airborne = true
+    this.vy = v
+    this.y = Math.max(this.y, 0.1)
+  }
+
+  get airY(): number {
+    return this.y
+  }
+
+  get isAirborne(): boolean {
+    return this.airborne
   }
 
   /** The pose the network layer broadcasts. */
@@ -95,8 +110,31 @@ export class CarController {
     this.position.addScaledVector(forward, this.speed * step)
     this.resolveCollisions(boxes, circles, forward)
 
-    this.position.x = THREE.MathUtils.clamp(this.position.x, -DRIVE_LIMIT, DRIVE_LIMIT)
-    this.position.z = THREE.MathUtils.clamp(this.position.z, -DRIVE_LIMIT, DRIVE_LIMIT)
+    // Vertical: ride ramps via groundY, fall when the ground drops away.
+    if (!this.airborne) {
+      if (this.groundY >= this.y - 0.05) {
+        this.y = this.groundY
+      } else {
+        this.airborne = true
+        this.vy = 0
+      }
+    }
+    if (this.airborne) {
+      this.y += this.vy * step
+      this.vy -= 22 * step
+      if (this.y <= 0 && this.groundY <= 0) {
+        this.y = 0
+        this.vy = 0
+        this.airborne = false
+        this.speed *= 0.94
+      } else if (this.y <= this.groundY && this.vy < 0) {
+        this.y = this.groundY
+        this.vy = 0
+        this.airborne = false
+        this.speed *= 0.94
+      }
+    }
+    this.y = Math.max(0, this.y)
 
     const targetRoll = this.steerAngle * speedRatio * p.leanPerSteer
     const targetPitch = -input.throttle * speedRatio * p.maxPitch
@@ -111,6 +149,7 @@ export class CarController {
   private writePose(speedRatio: number) {
     this.car.setPose({
       x: this.position.x,
+      y: this.y,
       z: this.position.z,
       heading: this.heading,
       roll: this.roll,

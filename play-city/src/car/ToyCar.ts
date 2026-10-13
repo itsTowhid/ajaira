@@ -99,7 +99,7 @@ export class ToyCar {
 
   /** The single visual path for a car, local or remote. */
   setPose(pose: CarPose) {
-    this.group.position.set(pose.x, 0, pose.z)
+    this.group.position.set(pose.x, pose.y ?? 0, pose.z)
     this.group.rotation.y = pose.heading
     this.body.rotation.z = pose.roll
     this.body.rotation.x = pose.pitch

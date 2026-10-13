@@ -25,10 +25,8 @@ const STALE_MS = 45_000
 const MAX_PLAYERS = 64
 const BODY_LIMIT = 4096
 
-// CITY_HALF + 280 from src/car/CarController.ts — the client clamps itself to the
-// same box (CITY_HALF 720 + 280 = 1000), so anything beyond it is a bug or a
-// hostile client.
-const POSITION_LIMIT = 1010
+// infinite world: effectively unbounded, clamp only rejects garbage
+const POSITION_LIMIT = 1000000
 // Above MAX_SPEED (83.3) and MAX_REVERSE (25) in src/car/tuning.ts.
 const SPEED_LIMIT = 100
 const COLOUR_COUNT = 8
