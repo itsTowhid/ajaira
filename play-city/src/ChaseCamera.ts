@@ -1,10 +1,10 @@
 import * as THREE from 'three'
 
 const MODES = [
-  { name: 'chase', distance: 16, pitch: 0.3, lookAhead: 6 },
-  { name: 'close', distance: 10, pitch: 0.2, lookAhead: 8 },
-  { name: 'aerial', distance: 46, pitch: 0.95, lookAhead: 2 },
-  { name: 'map', distance: 150, pitch: 1.5, lookAhead: 0 },
+  { name: 'chase', distance: 12, pitch: 0.24, lookAhead: 10, speedBonus: 16 },
+  { name: 'close', distance: 8, pitch: 0.16, lookAhead: 10, speedBonus: 12 },
+  { name: 'aerial', distance: 46, pitch: 0.95, lookAhead: 2, speedBonus: 20 },
+  { name: 'map', distance: 150, pitch: 1.5, lookAhead: 0, speedBonus: 0 },
 ] as const
 
 export type CameraMode = (typeof MODES)[number]['name']
@@ -40,8 +40,13 @@ export class ChaseCamera {
     }
     this.manualTimer = Math.max(0, this.manualTimer - dt)
 
-    const targetDistance = config.distance
+    // RC-toy feel: the car is small, so the follow sits lower and closer than a
+    // real chase cam — but at 300 km/h (83.3 u/s) it pulls back and looks
+    // further ahead so you can still see where you are going.
+    const speedFactor = Math.min(1, Math.abs(speed) / 83.3)
+    const targetDistance = config.distance + speedFactor * config.speedBonus
     const targetPitch = config.pitch
+    const lookAhead = config.lookAhead + speedFactor * 18
     this.distance += (targetDistance - this.distance) * Math.min(1, 2 * dt)
     this.pitch += (targetPitch - this.pitch) * Math.min(1, 2 * dt)
 
@@ -77,7 +82,7 @@ export class ChaseCamera {
 
     this.lookAt
       .copy(carPosition)
-      .addScaledVector(new THREE.Vector3(Math.sin(heading), 0, Math.cos(heading)), config.lookAhead)
+      .addScaledVector(new THREE.Vector3(Math.sin(heading), 0, Math.cos(heading)), lookAhead)
       .add(new THREE.Vector3(0, 2.2, 0))
     this.camera.lookAt(this.lookAt)
 

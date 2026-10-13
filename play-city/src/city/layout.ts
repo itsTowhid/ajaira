@@ -1,14 +1,14 @@
 import { chance, mulberry32, pick, rand, type Rng } from '../rng'
 
-export const ROAD_W = 12
-export const BLOCK = 46
+export const ROAD_W = 12 * 4
+export const BLOCK = 46 * 4
 export const CELL = BLOCK + ROAD_W
 export const GRID = 6
 export const CURB_H = 0.14
 
 export const CITY_SIZE = GRID * BLOCK + (GRID + 1) * ROAD_W
 export const CITY_HALF = CITY_SIZE / 2
-export const LANE = 3.4
+export const LANE = 3.4 * 4
 
 /** Centre line of every road, parallel to the X or Z axis. */
 export const ROAD_LINES: number[] = Array.from(

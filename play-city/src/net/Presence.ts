@@ -114,7 +114,7 @@ function pickSpawn(): CarSpawn {
   const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1
   return {
     x: road + (dir > 0 ? -LANE : LANE),
-    z: blockCenter(randInt(0, GRID - 1)) + (Math.random() * 18 - 9),
+    z: blockCenter(randInt(0, GRID - 1)) + (Math.random() * 72 - 36),
     heading: dir > 0 ? 0 : Math.PI,
   }
 }

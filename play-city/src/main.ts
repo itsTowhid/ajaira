@@ -32,9 +32,9 @@ renderer.toneMappingExposure = 1.05
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(PALETTE.sky)
-scene.fog = new THREE.Fog(PALETTE.fog, 220, 620)
+scene.fog = new THREE.Fog(PALETTE.fog, 900, 2500)
 
-const camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.5, 1600)
+const camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.5, 6400)
 camera.position.set(0, 12, 80)
 
 const layout = generateCityLayout()
@@ -52,11 +52,11 @@ sun.position.set(60, 90, 40)
 sun.castShadow = true
 sun.shadow.mapSize.set(2048, 2048)
 sun.shadow.camera.near = 1
-sun.shadow.camera.far = 320
-sun.shadow.camera.left = -70
-sun.shadow.camera.right = 70
-sun.shadow.camera.top = 70
-sun.shadow.camera.bottom = -70
+sun.shadow.camera.far = 1300
+sun.shadow.camera.left = -280
+sun.shadow.camera.right = 280
+sun.shadow.camera.top = 280
+sun.shadow.camera.bottom = -280
 sun.shadow.bias = -0.0008
 scene.add(sun)
 scene.add(sun.target)
@@ -120,6 +120,8 @@ presence.onWrecked = (by) => {
   respawnAt = performance.now() + SPAWN_PROTECT_S * 1000
   const killer = presence.players.get(by)
   hud.showWrecked(killer?.name ?? '')
+  // Our own wreck arrives here, not through onHit — still deserves the blast.
+  bullets.blast(controller.position.x, controller.position.z)
 }
 
 presence.onShot = (shot) => {
@@ -131,6 +133,13 @@ presence.onHit = (feedback) => {
   // We learn our own hp through the same broadcast that tells everyone else.
   if (feedback.onMe && !feedback.wrecked) hud.damageFlash()
   if (feedback.byMe && feedback.wrecked) kills += 1
+  // A wreck goes out with a bang: big blast where the victim was. Our own car
+  // is not in the roster, so a wreck with us as the target uses our position.
+  if (feedback.wrecked) {
+    const victim = presence.players.get(feedback.target)
+    if (victim) bullets.blast(victim.x, victim.z)
+    else bullets.blast(controller.position.x, controller.position.z)
+  }
 }
 
 /** Back on the road: fresh spawn, full tank, gone overlay. */
@@ -151,7 +160,7 @@ function net(action: () => void) {
 }
 
 const clock = new THREE.Clock()
-const sunOffset = new THREE.Vector3(70, 110, 50)
+const sunOffset = new THREE.Vector3(280, 440, 200)
 
 function resize() {
   const width = window.innerWidth
@@ -205,9 +214,10 @@ function frame() {
     if (hit.remoteId) presence.claimHit(hit.remoteId, 10)
     if (hit.breakable !== null) {
       const spec = layout.breakables[hit.breakable]
-      if (spec) breakables.break(spec, hit.x, hit.z, Math.sin(hit.h) * 6, Math.cos(hit.h) * 6)
+      // Bullet shove, x4 for the x4 city so debris flies like it used to.
+      if (spec) breakables.break(spec, hit.x, hit.z, Math.sin(hit.h) * 24, Math.cos(hit.h) * 24)
     }
-    if (hit.trafficIndex !== null) traffic.knock(hit.trafficIndex, Math.sin(hit.h) * 6, Math.cos(hit.h) * 6)
+    if (hit.trafficIndex !== null) traffic.knock(hit.trafficIndex, Math.sin(hit.h) * 24, Math.cos(hit.h) * 24)
   }
 
   if (!dead) {

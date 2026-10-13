@@ -1,7 +1,6 @@
 export interface InputState {
   throttle: number
   steer: number
-  brake: boolean
   /** Trigger held this frame (F key or on-screen button). */
   fire: boolean
   dragX: number
@@ -21,7 +20,7 @@ const KEY_MAP: Record<string, string> = {
   KeyA: 'left',
   ArrowRight: 'right',
   KeyD: 'right',
-  Space: 'brake',
+  Space: 'fire',
   KeyF: 'fire',
 }
 
@@ -38,14 +37,12 @@ export class Input {
     ['ctl-right', 'right'],
     ['ctl-gas', 'forward'],
     ['ctl-back', 'back'],
-    ['ctl-brake', 'brake'],
     ['ctl-fire', 'fire'],
   ]
 
   readonly state: InputState = {
     throttle: 0,
     steer: 0,
-    brake: false,
     fire: false,
     dragX: 0,
     dragY: 0,
@@ -130,7 +127,6 @@ export class Input {
     this.state.steer =
       (this.held.has('right') || this.virtual.has('right') ? 1 : 0) -
       (this.held.has('left') || this.virtual.has('left') ? 1 : 0)
-    this.state.brake = this.held.has('brake') || this.virtual.has('brake')
     this.state.fire = this.held.has('fire') || this.virtual.has('fire')
     return this.state
   }

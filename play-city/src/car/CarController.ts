@@ -6,12 +6,11 @@ import { CAR_PROFILE, POSE_RATE, steerLimitFor, type VehicleProfile } from './tu
 
 // Keep in sync with POSITION_LIMIT in server/net.mjs — the relay rejects anything
 // further out, so the car must never get there on its own.
-const DRIVE_LIMIT = CITY_HALF + 70
+const DRIVE_LIMIT = CITY_HALF + 280
 
 export interface DriveInput {
   throttle: number
   steer: number
-  brake: boolean
 }
 
 export interface CarSpawn {
@@ -79,10 +78,7 @@ export class CarController {
     const targetSteer = -input.steer * steerLimit
     this.steerAngle += (targetSteer - this.steerAngle) * Math.min(1, p.steerRate * step)
 
-    if (input.brake) {
-      const reduce = Math.sign(this.speed) * p.brakeForce * step
-      this.speed = Math.abs(this.speed) < Math.abs(reduce) ? 0 : this.speed - reduce
-    } else if (input.throttle !== 0) {
+    if (input.throttle !== 0) {
       this.speed += input.throttle * p.acceleration * step
       this.speed =
         input.throttle > 0

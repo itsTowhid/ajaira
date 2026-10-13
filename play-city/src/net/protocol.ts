@@ -76,7 +76,7 @@ export const MAX_EXTRAPOLATE_MS = 250
 export const MAX_REMOTE_CARS = 16
 
 /** Past this distance a remote car is culled. See RemoteCars. */
-export const CULL_DISTANCE = 260
+export const CULL_DISTANCE = 1050
 
 /* --- Combat ------------------------------------------------------------ */
 
@@ -90,7 +90,7 @@ export const HIT_DAMAGE = 10
 export const FIRE_RATE = 4
 
 /** Bullet flight speed, world units per second. */
-export const BULLET_SPEED = 140
+export const BULLET_SPEED = 420
 
 /** Bullets die of old age after this long — range is BULLET_SPEED * TTL. */
 export const BULLET_TTL_S = 1.2

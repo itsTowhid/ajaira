@@ -112,6 +112,18 @@ function groundPlane(size: number, material: THREE.Material, y: number) {
 export function buildCity(layout: CityLayout): THREE.Group {
   const city = new THREE.Group()
 
+  // The city is a play mat on a kid's table: a warm wood slab under everything,
+  // wide enough to stretch past the grass and disappear into the fog.
+  const tableRadius = CITY_SIZE * 1.4
+  const rim = new THREE.Mesh(new THREE.CylinderGeometry(tableRadius * 1.02, tableRadius * 1.02, 5.4, 48), mat.woodDark())
+  rim.position.y = -3.4
+  rim.receiveShadow = true
+  city.add(rim)
+  const table = new THREE.Mesh(new THREE.CylinderGeometry(tableRadius, tableRadius, 6, 48), mat.wood())
+  table.position.y = -3.08
+  table.receiveShadow = true
+  city.add(table)
+
   city.add(groundPlane(2400, mat.ground(), -0.04))
   city.add(groundPlane(CITY_SIZE + 260, mat.grass(), -0.02))
   city.add(groundPlane(CITY_SIZE, mat.asphalt(), 0))

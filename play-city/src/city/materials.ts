@@ -1,8 +1,8 @@
 import * as THREE from 'three'
 
 export const PALETTE = {
-  sky: 0xbfdcf5,
-  fog: 0xc8dff2,
+  sky: 0xcfe8f7,
+  fog: 0xd8ecfa,
   grass: 0x7fc46b,
   grassDark: 0x63ad53,
   asphalt: 0x50535c,
@@ -11,6 +11,8 @@ export const PALETTE = {
   sidewalk: 0xc9c6bf,
   paint: 0xf2f4f0,
   trunk: 0x8a5a3b,
+  wood: 0xb98a5a,
+  woodDark: 0xa67844,
   foliage: [0x4faa52, 0x5fbf62, 0x3f9a48],
   metal: 0xb8bcc4,
   water: 0x4aa3d8,
@@ -68,6 +70,12 @@ export const mat = {
 
   trunk: () =>
     standard('trunk', new THREE.MeshLambertMaterial({ color: PALETTE.trunk })),
+
+  wood: () =>
+    standard('wood', new THREE.MeshLambertMaterial({ color: PALETTE.wood })),
+
+  woodDark: () =>
+    standard('woodDark', new THREE.MeshLambertMaterial({ color: PALETTE.woodDark })),
 
   water: () =>
     standard('water', new THREE.MeshLambertMaterial({ color: PALETTE.water })),

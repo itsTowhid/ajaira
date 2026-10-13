@@ -7,7 +7,6 @@ export interface VehicleProfile {
   readonly maxSpeed: number
   readonly maxReverse: number
   readonly acceleration: number
-  readonly brakeForce: number
   readonly coastDrag: number
   readonly idleDrag: number
   readonly maxSteer: number
@@ -32,16 +31,15 @@ export interface VehicleProfile {
 export const POSE_RATE = 6
 
 export const CAR_PROFILE: VehicleProfile = {
-  maxSpeed: 32,
-  maxReverse: 13,
-  acceleration: 24,
-  brakeForce: 46,
-  coastDrag: 7,
-  idleDrag: 9,
+  maxSpeed: 83.3,
+  maxReverse: 25,
+  acceleration: 55,
+  coastDrag: 6,
+  idleDrag: 4,
   maxSteer: 0.62,
   steerRate: 4.2,
-  turnDivisor: 2.9,
-  steerFalloff: 0.62,
+  turnDivisor: 7.4,
+  steerFalloff: 0.55,
   bodyHalfWidth: 1.05,
   colliderRadius: 1.6,
   leanPerSteer: 0.32,
@@ -56,16 +54,15 @@ export const CAR_PROFILE: VehicleProfile = {
  * is what makes it read as a bike rather than a slow car.
  */
 export const BIKE_PROFILE: VehicleProfile = {
-  maxSpeed: 27,
-  maxReverse: 6,
-  acceleration: 34,
-  brakeForce: 42,
+  maxSpeed: 75,
+  maxReverse: 12,
+  acceleration: 65,
   coastDrag: 5.5,
   idleDrag: 6,
   maxSteer: 1.0,
   steerRate: 6.5,
-  turnDivisor: 2.2,
-  steerFalloff: 0.62,
+  turnDivisor: 5.6,
+  steerFalloff: 0.5,
   bodyHalfWidth: 0.5,
   colliderRadius: 0.75,
   leanPerSteer: 1.15,

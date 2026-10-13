@@ -85,8 +85,8 @@ export class Traffic {
       dir,
       junction: roadIndex + dir,
       t,
-      cruise: 6 + Math.random() * 4,
-      speed: 6 + Math.random() * 4,
+      cruise: 24 + Math.random() * 16,
+      speed: 24 + Math.random() * 16,
       colorIndex: index % PALETTE.cars.length,
       knockTime: 0,
       vx: 0,
@@ -125,7 +125,8 @@ export class Traffic {
       }
 
       const target = this.cruiseTarget(agent, playerX, playerZ, playerSpeed)
-      agent.speed += THREE.MathUtils.clamp(target - agent.speed, -9 * step, 4.5 * step)
+      // x4 city: accel authority scales with the x4 cruise speeds.
+      agent.speed += THREE.MathUtils.clamp(target - agent.speed, -36 * step, 18 * step)
       agent.t += agent.dir * agent.speed * step
       this.advance(agent)
 
@@ -151,7 +152,8 @@ export class Traffic {
       if (other === agent || other.knockTime > 0) continue
       if (other.axis !== agent.axis || other.roadIndex !== agent.roadIndex) continue
       const ahead = (other.t - agent.t) * agent.dir
-      if (ahead > 0 && ahead < 9) target = Math.min(target, Math.max(0, (ahead - 4.5) * 2.2))
+      // x4 city: follow gaps scale with the longer braking distances.
+      if (ahead > 0 && ahead < 36) target = Math.min(target, Math.max(0, (ahead - 18) * 2.2))
     }
 
     const forwardX = Math.sin(agent.heading)
@@ -160,8 +162,8 @@ export class Traffic {
     const toPlayerZ = playerZ - agent.z
     const along = toPlayerX * forwardX + toPlayerZ * forwardZ
     const side = Math.abs(toPlayerX * forwardZ - toPlayerZ * forwardX)
-    if (along > 0 && along < 13 && side < 2.6 && playerSpeed >= -1) {
-      target = Math.min(target, Math.max(0, (along - 6) * 1.6))
+    if (along > 0 && along < 52 && side < 10.4 && playerSpeed >= -1) {
+      target = Math.min(target, Math.max(0, (along - 24) * 1.6))
     }
 
     return target
@@ -222,7 +224,7 @@ export class Traffic {
     agent.vz = 0
     agent.spin = 0
     agent.speed = 0
-    agent.cruise = 6 + Math.random() * 4
+    agent.cruise = 24 + Math.random() * 16
 
     const offset = laneOffset(agent.axis, agent.dir)
     if (agent.axis === 'z') {
