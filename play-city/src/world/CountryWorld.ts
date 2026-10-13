@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { TILE, generateTile, type Ramp, type Tile } from './tiles'
+import { TILE, GRASS_GEO, generateTile, type Ramp, type Tile } from './tiles'
 import { heightAt as terrainHeightAt } from './terrain'
 import type { BoxCollider, CircleCollider } from '../city/layout'
 
@@ -24,9 +24,17 @@ export class CountryWorld {
       if (Math.max(Math.abs(sx - cx), Math.abs(sz - cz)) > 3) {
         this.group.remove(tile.group)
         tile.group.traverse((obj) => {
+          // Grass uses a module-level shared geometry/material: dispose only
+          // the per-tile instance buffers, never the shared resources.
+          if ((obj as THREE.InstancedMesh).isInstancedMesh) {
+            ;(obj as THREE.InstancedMesh).dispose()
+            return
+          }
           const mesh = obj as THREE.Mesh
           if (mesh.isMesh) {
-            mesh.geometry.dispose()
+            if (mesh.geometry !== (GRASS_GEO as THREE.BufferGeometry)) {
+              mesh.geometry.dispose()
+            }
           }
         })
         this.tiles.delete(key)

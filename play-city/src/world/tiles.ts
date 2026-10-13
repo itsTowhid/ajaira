@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { mulberry32, rand, pick, chance } from '../rng'
+import { mulberry32, rand, chance } from '../rng'
 import type { BoxCollider, CircleCollider } from '../city/layout'
 import {
   ROAD_HALF,
@@ -25,6 +25,7 @@ export interface Tile {
   circles: CircleCollider[]
   ramps: Ramp[]
   spinners: THREE.Object3D[]
+  grassCount: number
 }
 
 function hashTile(tx: number, tz: number): number {
@@ -32,23 +33,28 @@ function hashTile(tx: number, tz: number): number {
 }
 
 // Shared materials for props; the terrain mesh owns a single vertex-color
-// material. Geometries are per-mesh and disposed on prune.
+// material. Per-tile geometries (terrain plane, barn, windmill, ramps) are
+// created fresh per tile and disposed on prune. Grass geometry/material below
+// are module-level shared and must NEVER be disposed per tile.
 const mat = {
   terrain: new THREE.MeshLambertMaterial({ vertexColors: true }),
-  fence: new THREE.MeshLambertMaterial({ color: 0xb99a6b }),
-  trunk: new THREE.MeshLambertMaterial({ color: 0x8a6238 }),
-  crowns: [
-    new THREE.MeshLambertMaterial({ color: 0x4e8a3e }),
-    new THREE.MeshLambertMaterial({ color: 0x5da24a }),
-    new THREE.MeshLambertMaterial({ color: 0x3e7a34 }),
-  ],
-  hay: new THREE.MeshLambertMaterial({ color: 0xd8b95e }),
   barn: new THREE.MeshLambertMaterial({ color: 0xb5533c }),
   roof: new THREE.MeshLambertMaterial({ color: 0x8a3d2e }),
   tower: new THREE.MeshLambertMaterial({ color: 0xcbb79a }),
   blade: new THREE.MeshLambertMaterial({ color: 0xe8dcc0 }),
   ramp: new THREE.MeshLambertMaterial({ color: 0xb98a5a }),
 }
+
+// Grass detail (visual only, no colliders): one shared cone + one shared
+// material for all tiles. Per-tile InstancedMesh instances are disposed on
+// prune via InstancedMesh.dispose() (instance buffers only); this geometry
+// and material live for the whole session.
+const GRASS_BASE_HEIGHT = 1
+export const GRASS_GEO = new THREE.ConeGeometry(0.16, GRASS_BASE_HEIGHT, 5)
+GRASS_GEO.translate(0, GRASS_BASE_HEIGHT / 2, 0)
+export const GRASS_MAT = new THREE.MeshLambertMaterial({ color: 0xffffff })
+const GRASS_COLORS = [0x6aae5c, 0x8fbf6a, 0x7fc46b].map((h) => new THREE.Color(h))
+const GRASS_HEIGHTS = [0.5, 0.7, 0.9]
 
 const mod3 = (n: number) => ((n % 3) + 3) % 3
 
@@ -92,6 +98,8 @@ const insidePatch = (p: Patch, x: number, z: number): boolean =>
 export function generateTile(tx: number, tz: number): Tile {
   const rng = mulberry32(hashTile(tx, tz))
   const group = new THREE.Group()
+  // Obstacle-free world: nothing may stop the vehicle, so these stay empty.
+  // Kept (not removed) because consumers iterate them.
   const boxes: BoxCollider[] = []
   const circles: CircleCollider[] = []
   const ramps: Ramp[] = []
@@ -115,8 +123,9 @@ export function generateTile(tx: number, tz: number): Tile {
     return false
   }
 
-  // Wheat field rects: 1-2 per tile, tracked for fences. Placed conservatively
-  // clear of the wandering strip (±14) so they never straddle a road.
+  // Wheat field rects: 1-2 per tile (paint only — fences removed).
+  // Placed conservatively clear of the wandering strip (±14) so they never
+  // straddle a road.
   const fields: Patch[] = []
   const fieldCount = 1 + Math.floor(rng() * 2)
   for (let i = 0; i < fieldCount; i++) {
@@ -144,7 +153,7 @@ export function generateTile(tx: number, tz: number): Tile {
     fields.push({ x: fx, z: fz, w, d })
   }
 
-  // Plowed patch in ~15% of tiles, like wheat but unfenced.
+  // Plowed patch in ~15% of tiles (paint only).
   let plowed: Patch | null = null
   if (chance(rng, 0.15)) {
     const w = rand(rng, 16, 30)
@@ -216,94 +225,7 @@ export function generateTile(tx: number, tz: number): Tile {
     group.add(mesh)
   }
 
-  // Fences along 1-2 field edges, split into 2-3 segments that each follow
-  // the terrain at their own end-averaged height, sunk 0.25.
-  for (const f of fields) {
-    const runs = 1 + Math.floor(rng() * 2)
-    const edges = [0, 1, 2, 3]
-    for (let i = edges.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1))
-      ;[edges[i], edges[j]] = [edges[j], edges[i]]
-    }
-    for (let i = 0; i < runs; i++) {
-      const edge = edges[i % edges.length]
-      const alongX = edge === 0 || edge === 1 // north/south run along x
-      const segs = 2 + Math.floor(rng() * 2)
-      if (alongX) {
-        const z = f.z + (edge === 0 ? -f.d / 2 : f.d / 2)
-        const segLen = f.w / segs
-        for (let k = 0; k < segs; k++) {
-          const x0 = f.x - f.w / 2 + segLen * k
-          const x1 = x0 + segLen
-          const cx = (x0 + x1) / 2
-          const y = (heightAt(x0, z) + heightAt(x1, z)) / 2 + 0.2
-          const mesh = new THREE.Mesh(new THREE.BoxGeometry(segLen, 0.9, 0.18), mat.fence)
-          mesh.position.set(cx, y, z)
-          mesh.castShadow = true
-          group.add(mesh)
-          boxes.push({ x: cx, z, hw: segLen / 2, hd: 0.09 })
-        }
-      } else {
-        const x = f.x + (edge === 2 ? -f.w / 2 : f.w / 2)
-        const segLen = f.d / segs
-        for (let k = 0; k < segs; k++) {
-          const z0 = f.z - f.d / 2 + segLen * k
-          const z1 = z0 + segLen
-          const cz = (z0 + z1) / 2
-          const y = (heightAt(x, z0) + heightAt(x, z1)) / 2 + 0.2
-          const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.9, segLen), mat.fence)
-          mesh.position.set(x, y, cz)
-          mesh.castShadow = true
-          group.add(mesh)
-          boxes.push({ x, z: cz, hw: 0.09, hd: segLen / 2 })
-        }
-      }
-    }
-  }
-
-  // Trees: 3-8, avoiding road strips, rooted on the terrain.
-  const treeCount = 3 + Math.floor(rng() * 6)
-  for (let i = 0; i < treeCount; i++) {
-    const lx = rand(rng, -HALF + 4, HALF - 4)
-    const lz = rand(rng, -HALF + 4, HALF - 4)
-    if (onRoad(lx, lz, 3)) continue
-    const x = baseX + lx
-    const z = baseZ + lz
-    const h = heightAt(x, z)
-    const trunkGeo = new THREE.CylinderGeometry(0.35, 0.35, 2.2, 7)
-    const trunk = new THREE.Mesh(trunkGeo, mat.trunk)
-    trunk.position.set(x, h + 1.1, z)
-    trunk.castShadow = true
-    group.add(trunk)
-    const crownR = rand(rng, 1.6, 2.4)
-    const crownGeo = new THREE.IcosahedronGeometry(crownR, 0)
-    const crown = new THREE.Mesh(crownGeo, pick(rng, mat.crowns))
-    crown.position.set(x, h + 2.2 + crownR * 0.7, z)
-    crown.castShadow = true
-    group.add(crown)
-    circles.push({ x, z, r: 0.9 })
-  }
-
-  // Hay bales: 0-3.
-  const hayCount = Math.floor(rng() * 4)
-  for (let i = 0; i < hayCount; i++) {
-    const lx = rand(rng, -HALF + 4, HALF - 4)
-    const lz = rand(rng, -HALF + 4, HALF - 4)
-    if (onRoad(lx, lz, 2)) continue
-    const x = baseX + lx
-    const z = baseZ + lz
-    const h = heightAt(x, z)
-    const geo = new THREE.CylinderGeometry(1.1, 1.1, 1.6, 12)
-    const mesh = new THREE.Mesh(geo, mat.hay)
-    mesh.rotation.z = Math.PI / 2
-    mesh.rotation.y = rng() * Math.PI * 2
-    mesh.position.set(x, h + 1.1, z)
-    mesh.castShadow = true
-    group.add(mesh)
-    circles.push({ x, z, r: 1.1 })
-  }
-
-  // Barn: 8%.
+  // Barn: 8%, VISUAL ONLY — no collider (car passes through).
   if (chance(rng, 0.08)) {
     let bx = baseX
     let bz = baseZ
@@ -331,10 +253,9 @@ export function generateTile(tx: number, tz: number): Tile {
     roof.rotation.y = Math.PI / 4
     roof.castShadow = true
     group.add(roof)
-    boxes.push({ x: bx, z: bz, hw: 5, hd: 4 })
   }
 
-  // Windmill: 4%. Tower rooted on the terrain; blades keep spinning.
+  // Windmill: 4%, VISUAL ONLY — no collider. Blades keep spinning.
   if (chance(rng, 0.04)) {
     let wx = baseX
     let wz = baseZ
@@ -365,7 +286,6 @@ export function generateTile(tx: number, tz: number): Tile {
     }
     group.add(blades)
     spinners.push(blades)
-    circles.push({ x: wx, z: wz, r: 2 })
   }
 
   // Ramps on road tiles, centred on the (curved) road centreline so they sit
@@ -395,5 +315,41 @@ export function generateTile(tx: number, tz: number): Tile {
     }
   }
 
-  return { group, boxes, circles, ramps, spinners }
+  // Grass detail (visual only, no colliders): one InstancedMesh per tile,
+  // 40-70 blades scattered at rng positions; skipped on dirt roads and inside
+  // ponds. Appended after all other features so earlier rng order is stable.
+  let grassCount = 0
+  {
+    const target = 40 + Math.floor(rng() * 31)
+    const mesh = new THREE.InstancedMesh(GRASS_GEO, GRASS_MAT, target)
+    const dummy = new THREE.Object3D()
+    let placed = 0
+    for (let attempt = 0; attempt < target * 6 && placed < target; attempt++) {
+      const lx = rand(rng, -HALF + 2, HALF - 2)
+      const lz = rand(rng, -HALF + 2, HALF - 2)
+      const wx = baseX + lx
+      const wz = baseZ + lz
+      if (distanceToRoadCentre(wx, wz) <= ROAD_HALF + 0.5) continue
+      if (pond) {
+        const dx = wx - pond.x
+        const dz = wz - pond.z
+        if (dx * dx + dz * dz <= pond.r * pond.r) continue
+      }
+      const sy = GRASS_HEIGHTS[Math.floor(rng() * GRASS_HEIGHTS.length)]
+      dummy.position.set(wx, heightAt(wx, wz) - 0.05, wz)
+      dummy.scale.set(1, sy, 1)
+      dummy.rotation.y = rng() * Math.PI * 2
+      dummy.updateMatrix()
+      mesh.setMatrixAt(placed, dummy.matrix)
+      mesh.setColorAt(placed, GRASS_COLORS[placed % GRASS_COLORS.length])
+      placed++
+    }
+    mesh.count = placed
+    mesh.instanceMatrix.needsUpdate = true
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+    grassCount = placed
+    group.add(mesh)
+  }
+
+  return { group, boxes, circles, ramps, spinners, grassCount }
 }
