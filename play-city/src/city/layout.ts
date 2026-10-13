@@ -184,17 +184,17 @@ class CityBuilder {
 function fillWithBuildings(builder: CityBuilder, block: BlockLot) {
   const { rng, layout } = builder
   const rects: Rect[] = []
-  subdivide(rng, { x: block.centerX, z: block.centerZ, w: BLOCK - 6, d: BLOCK - 6 }, 3, 15, rects)
+  subdivide(rng, { x: block.centerX, z: block.centerZ, w: BLOCK - 24, d: BLOCK - 24 }, 3, 60, rects)
 
   for (const rect of rects) {
     if (chance(rng, 0.08)) continue
-    const inset = rand(rng, 1.2, 3)
-    const w = Math.max(6, rect.w - inset * 2)
-    const d = Math.max(6, rect.d - inset * 2)
+    const inset = rand(rng, 4.8, 12)
+    const w = Math.max(24, rect.w - inset * 2)
+    const d = Math.max(24, rect.d - inset * 2)
     const area = w * d
     const nearCentre = Math.hypot(rect.x, rect.z) < CITY_HALF * 0.5
-    const h = rand(rng, 7, nearCentre ? 44 : 26) * (area < 200 ? 0.7 : 1)
-    const setback = h > 24 && chance(rng, 0.6)
+    const h = rand(rng, 28, nearCentre ? 176 : 104) * (area < 3200 ? 0.7 : 1)
+    const setback = h > 96 && chance(rng, 0.6)
     block.buildings.push({
       x: rect.x,
       z: rect.z,
@@ -204,7 +204,7 @@ function fillWithBuildings(builder: CityBuilder, block: BlockLot) {
       colorIndex: Math.floor(rng() * 12),
       windowIndex: Math.floor(rand(rng, 0, 3)),
       setback,
-      antenna: h > 30 && chance(rng, 0.5),
+      antenna: h > 120 && chance(rng, 0.5),
       roofBox: chance(rng, 0.7),
     })
   }
@@ -214,11 +214,11 @@ function fillWithBuildings(builder: CityBuilder, block: BlockLot) {
   }
 }
 
-const STALL_W = 2.8
-const STALL_D = 5.4
+const STALL_W = 11.2
+const STALL_D = 21.6
 
 function parkingDimensions() {
-  const perRow = Math.floor((BLOCK - 8) / STALL_W)
+  const perRow = Math.floor((BLOCK - 32) / STALL_W)
   const usedW = perRow * STALL_W
   const rows = 3
   return { perRow, usedW, rows }
@@ -237,15 +237,15 @@ function fillWithParking(builder: CityBuilder, block: BlockLot) {
         if (!chance(rng, 0.42)) continue
         const z = rowZ + side * (STALL_D / 2 + 0.2)
         block.parkedCars.push({ x, z, rotation: side < 0 ? 0 : Math.PI, colorIndex: pick(rng, carColors) })
-        builder.box(x, z, 1.05, 2.3)
+        builder.box(x, z, 4.2, 9.2)
       }
     }
   }
 
   for (let i = 0; i < 4; i++) {
-    const x = block.centerX - usedW / 2 + 4 + (i * (usedW - 8)) / 3
-    builder.breakable('crate', x, block.centerZ + (i % 2 === 0 ? 1 : -1) * 1.4, rand(rng, 0, Math.PI), Math.floor(rng() * 4), 1)
-    builder.box(x, block.centerZ, 0.8, 0.8)
+    const x = block.centerX - usedW / 2 + 16 + (i * (usedW - 32)) / 3
+    builder.breakable('crate', x, block.centerZ + (i % 2 === 0 ? 1 : -1) * 5.6, rand(rng, 0, Math.PI), Math.floor(rng() * 4), 1)
+    builder.box(x, block.centerZ, 3.2, 3.2)
   }
 }
 
@@ -256,8 +256,8 @@ function fillWithPlayground(builder: CityBuilder, block: BlockLot) {
   const count = 4 + Math.floor(rng() * 2)
 
   for (let i = 0; i < count; i++) {
-    const x = block.centerX + rand(rng, -1, 1) * (BLOCK / 2 - 9)
-    const z = block.centerZ + rand(rng, -1, 1) * (BLOCK / 2 - 9)
+    const x = block.centerX + rand(rng, -1, 1) * (BLOCK / 2 - 36)
+    const z = block.centerZ + rand(rng, -1, 1) * (BLOCK / 2 - 36)
     const kind = kinds[i % kinds.length]
     block.props.push({
       kind,
@@ -267,12 +267,12 @@ function fillWithPlayground(builder: CityBuilder, block: BlockLot) {
       colorIndex: pick(rng, propColors),
     })
     if (kind === 'sandbox') continue
-    builder.box(x, z, kind === 'swings' ? 4.2 : 2.6, kind === 'swings' ? 1.2 : 2.2)
+    builder.box(x, z, kind === 'swings' ? 16.8 : 10.4, kind === 'swings' ? 4.8 : 8.8)
   }
 
   for (let i = 0; i < 10; i++) {
     const angle = (i / 10) * Math.PI * 2
-    builder.circle(block.centerX + Math.cos(angle) * (BLOCK / 2 - 2), block.centerZ + Math.sin(angle) * (BLOCK / 2 - 2), 0.45)
+    builder.circle(block.centerX + Math.cos(angle) * (BLOCK / 2 - 8), block.centerZ + Math.sin(angle) * (BLOCK / 2 - 8), 1.8)
   }
 }
 
@@ -280,65 +280,65 @@ function addBench(builder: CityBuilder, x: number, z: number, rotation: number) 
   const id = builder.breakable('bench', x, z, rotation, 0, 1)
   const cos = Math.cos(rotation)
   const sin = Math.sin(rotation)
-  builder.box(x + cos * 0.2, z - sin * 0.2, 1.3, 0.4, id)
+  builder.box(x + cos * 0.8, z - sin * 0.8, 5.2, 1.6, id)
 }
 
 function fillWithPark(builder: CityBuilder, block: BlockLot) {
   const { rng } = builder
   const treeCount = 8 + Math.floor(rng() * 7)
   for (let i = 0; i < treeCount; i++) {
-    const x = block.centerX + rand(rng, -1, 1) * (BLOCK / 2 - 4)
-    const z = block.centerZ + rand(rng, -1, 1) * (BLOCK / 2 - 4)
+    const x = block.centerX + rand(rng, -1, 1) * (BLOCK / 2 - 16)
+    const z = block.centerZ + rand(rng, -1, 1) * (BLOCK / 2 - 16)
     const scale = rand(rng, 0.85, 1.5)
     const rotation = rng() * Math.PI * 2
     const id = builder.breakable('tree', x, z, rotation, Math.floor(rng() * 3), scale)
     block.trees.push({ x, z, scale, rotation, id })
-    builder.circle(x, z, 0.7 * scale, id)
+    builder.circle(x, z, 2.8 * scale, id)
   }
 
   block.pond = chance(rng, 0.5)
   if (block.pond) {
-    builder.circle(block.centerX + rand(rng, -6, 6), block.centerZ + rand(rng, -6, 6), 5)
+    builder.circle(block.centerX + rand(rng, -24, 24), block.centerZ + rand(rng, -24, 24), 20)
   }
 
   for (let i = 0; i < 4; i++) {
     const angle = (i / 4) * Math.PI * 2 + 0.6
-    addBench(builder, block.centerX + Math.cos(angle) * 9, block.centerZ + Math.sin(angle) * 9, angle)
+    addBench(builder, block.centerX + Math.cos(angle) * 36, block.centerZ + Math.sin(angle) * 36, angle)
   }
 }
 
 function fillWithPlaza(builder: CityBuilder, block: BlockLot) {
   const { rng } = builder
-  builder.box(block.centerX, block.centerZ, 4.4, 4.4)
+  builder.box(block.centerX, block.centerZ, 17.6, 17.6)
 
   for (let i = 0; i < 4; i++) {
     const angle = (i / 4) * Math.PI * 2 + Math.PI / 4
-    const x = block.centerX + Math.cos(angle) * 11
-    const z = block.centerZ + Math.sin(angle) * 11
+    const x = block.centerX + Math.cos(angle) * 44
+    const z = block.centerZ + Math.sin(angle) * 44
     const scale = rand(rng, 0.9, 1.2)
     const id = builder.breakable('tree', x, z, rng() * Math.PI, Math.floor(rng() * 3), scale)
     block.trees.push({ x, z, scale, rotation: 0, id })
-    builder.circle(x, z, 0.8, id)
+    builder.circle(x, z, 3.2, id)
   }
 
   for (let i = 0; i < 4; i++) {
     const angle = (i / 4) * Math.PI * 2
-    addBench(builder, block.centerX + Math.cos(angle) * 15, block.centerZ + Math.sin(angle) * 15, angle + Math.PI / 2)
+    addBench(builder, block.centerX + Math.cos(angle) * 60, block.centerZ + Math.sin(angle) * 60, angle + Math.PI / 2)
   }
 
   for (let i = 0; i < 3; i++) {
     const angle = (i / 3) * Math.PI * 2 + 0.7
-    const x = block.centerX + Math.cos(angle) * 10
-    const z = block.centerZ + Math.sin(angle) * 10
+    const x = block.centerX + Math.cos(angle) * 40
+    const z = block.centerZ + Math.sin(angle) * 40
     for (const [sx, sz] of [
       [-1, -1],
       [1, -1],
       [-1, 1],
       [1, 1],
     ]) {
-      builder.box(x + sx * 1.4, z + sz * 1.4, 0.12, 0.12)
+      builder.box(x + sx * 5.6, z + sz * 5.6, 0.48, 0.48)
     }
-    builder.box(x, z, 1.7, 1.7)
+    builder.box(x, z, 6.8, 6.8)
   }
 }
 
@@ -370,14 +370,14 @@ function addStreetFurniture(builder: CityBuilder) {
       const along = blockCenter(face)
       for (const side of [-1, 1]) {
         if (!chance(rng, 0.55)) continue
-        const x = road + side * (ROAD_W / 2 + 1.4)
+        const x = road + side * (ROAD_W / 2 + 5.6)
         layout.lamps.push({ x, z: along, rotation: side < 0 ? 0 : Math.PI, id: builder.breakable('lamp', x, along, side < 0 ? 0 : Math.PI, 0, 1) })
-        builder.circle(x, along, 0.45, layout.lamps[layout.lamps.length - 1].id)
+        builder.circle(x, along, 1.8, layout.lamps[layout.lamps.length - 1].id)
 
-        const z = road + side * (ROAD_W / 2 + 1.4)
+        const z = road + side * (ROAD_W / 2 + 5.6)
         const rotation = side < 0 ? Math.PI / 2 : -Math.PI / 2
         layout.lamps.push({ x: along, z, rotation, id: builder.breakable('lamp', along, z, rotation, 0, 1) })
-        builder.circle(along, z, 0.45, layout.lamps[layout.lamps.length - 1].id)
+        builder.circle(along, z, 1.8, layout.lamps[layout.lamps.length - 1].id)
       }
     }
   }
