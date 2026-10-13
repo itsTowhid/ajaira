@@ -1,7 +1,7 @@
 import { GRID, LANE, ROAD_LINES, blockCenter } from '../city/layout'
 import { PALETTE } from '../city/materials'
 import type { CarSpawn, CarTelemetry } from '../car/CarController'
-import { TICK_MS, vehicleCode, vehicleKind, type NetStatus, type ServerEvent, type VehicleKind } from './protocol'
+import { MAX_HP, TICK_MS, vehicleCode, vehicleKind, type NetStatus, type ServerEvent, type VehicleKind } from './protocol'
 
 const ID_KEY = 'play-city:player-id'
 const ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/
@@ -60,6 +60,10 @@ export interface RemoteState {
   z: number
   h: number
   s: number
+  /** Server-owned hit points; undefined when talking to a pre-combat relay. */
+  hp?: number
+  /** True between a `wreck` and the respawn `hit`. Wrecks render nowhere. */
+  dead: boolean
 }
 
 const randInt = (min: number, max: number) =>
@@ -137,6 +141,7 @@ function toRemote(wire: {
   z: number
   h: number
   s: number
+  hp?: number
 }): RemoteState | null {
   if (!wire || !ID_PATTERN.test(wire.id)) return null
   if (![wire.color, wire.x, wire.z, wire.h, wire.s].every(isFiniteNumber)) return null
@@ -150,7 +155,22 @@ function toRemote(wire: {
     z: wire.z,
     h: wire.h,
     s: wire.s,
+    hp: isFiniteNumber(wire.hp) ? wire.hp : undefined,
+    dead: isFiniteNumber(wire.hp) ? wire.hp <= 0 : false,
   }
+}
+
+/** Whom a shot hit, for kill-credit toasts and stat bumps. */
+export interface HitFeedback {
+  target: string
+  hp: number
+  wrecked: boolean
+  /** The killer was us. */
+  byMe: boolean
+  /** The victim was us (regular hits only; wrecks also fire `onWrecked`). */
+  onMe: boolean
+  /** Who pulled the trigger, for kill-feed text. */
+  by: string
 }
 
 /**
@@ -171,6 +191,16 @@ export class Presence {
   status: NetStatus = 'connecting'
   /** Replaced wholesale on `hello`, upserted on `join`/`state`, pruned on `leave`. */
   players = new Map<string, RemoteState>()
+
+  /** Server-owned health for this car. Solo play never touches it. */
+  hp = MAX_HP
+  /** True from our `wreck` until the respawn POST lands. */
+  dead = false
+
+  /** Shots we fired (server-echoed) and hits we scored, for HUD + toasts. */
+  onShot: ((shot: { x: number; z: number; h: number; kind: VehicleKind; by: string }) => void) | null = null
+  onHit: ((feedback: HitFeedback) => void) | null = null
+  onWrecked: ((by: string) => void) | null = null
 
   private source: EventSource | null = null
   // -Infinity, not 0: performance.now() is time since page load, so a player who
@@ -204,8 +234,61 @@ export class Presence {
     this.lastH = Number.NaN
   }
 
+  /** True while the relay still counts us as spawn-protected. Best-effort: solo is always true. */
+  get shielded(): boolean {
+    return this.status !== 'online'
+  }
+
+  /**
+   * Pull the trigger. Fire-and-forget: the server rate-limits and relays the
+   * shot to everybody else. A wrecked or offline client just does not send.
+   */
+  fire(x: number, z: number, h: number) {
+    if (this.dead || this.status !== 'online') return
+    void fetch(`/api/fire?id=${encodeURIComponent(this.id)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ x, z, h, kind: vehicleCode(this.kind) }),
+      keepalive: true,
+    }).catch(() => {
+      /* the SSE status is the source of truth; a lost shot is a lost shot */
+    })
+  }
+
+  /**
+   * Report a hit our bullet actually scored. The server owns the victim's hp,
+   * so the client only nominates target and damage; everyone learns the result
+   * through the `hit` event, including us.
+   */
+  claimHit(target: string, damage: number) {
+    if (this.dead || this.status !== 'online') return
+    void fetch(`/api/hit?id=${encodeURIComponent(this.id)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target, damage }),
+      keepalive: true,
+    }).catch(() => {
+      /* a lost claim just means one free hit for the target */
+    })
+  }
+
+  /**
+   * Come back from a wreck: fresh spawn point, full tank. The next announce
+   * POSTs immediately, which doubles as the server-side respawn signal.
+   */
+  respawn() {
+    const at = pickSpawn()
+    this.hp = MAX_HP
+    this.dead = false
+    this.lastX = Number.NaN
+    this.lastZ = Number.NaN
+    this.lastH = Number.NaN
+    return at
+  }
+
   /** Fire-and-forget. At most one message per TICK_MS, and only when something moved. */
   announce(telemetry: CarTelemetry) {
+    if (this.dead) return
     const now = performance.now()
     if (now - this.lastSend < TICK_MS) return
 
@@ -268,6 +351,9 @@ export class Presence {
       source.addEventListener('join', (event) => this.onJoin(event as MessageEvent<string>))
       source.addEventListener('leave', (event) => this.onLeave(event as MessageEvent<string>))
       source.addEventListener('state', (event) => this.onState(event as MessageEvent<string>))
+      source.addEventListener('shot', (event) => this.onShotEvent(event as MessageEvent<string>))
+      source.addEventListener('hit', (event) => this.onHitEvent(event as MessageEvent<string>))
+      source.addEventListener('wreck', (event) => this.onWreckEvent(event as MessageEvent<string>))
     } catch {
       this.status = 'offline'
     }
@@ -311,6 +397,58 @@ export class Presence {
       existing.s = pose[3]
       if (pose.length > 4) existing.kind = vehicleKind(pose[4])
     }
+  }
+
+  /** A peer fired. `kind` picks the muzzle height (car bonnet vs bike bars). */
+  private onShotEvent(event: MessageEvent<string>) {
+    const event_ = readEvent(event.data)
+    if (!event_ || event_.t !== 'shot' || event_.id === this.id) return
+    if (![event_.x, event_.z, event_.h].every(isFiniteNumber)) return
+    this.onShot?.({ x: event_.x, z: event_.z, h: event_.h, kind: vehicleKind(event_.kind), by: event_.id })
+  }
+
+  private onHitEvent(event: MessageEvent<string>) {
+    const event_ = readEvent(event.data)
+    if (!event_ || event_.t !== 'hit') return
+    const hp = event_.hp
+    if (!isFiniteNumber(hp)) return
+    const mine = event_.target === this.id
+    if (mine) {
+      this.hp = Math.max(0, hp)
+      this.dead = false
+    }
+    const remote = this.players.get(event_.target)
+    if (remote) {
+      remote.hp = Math.max(0, hp)
+      // A max-hp hit after a wreck is the respawn: the car is back.
+      if (remote.dead && hp > 0) remote.dead = false
+    }
+    this.onHit?.({
+      target: event_.target,
+      hp: Math.max(0, hp),
+      wrecked: false,
+      byMe: event_.by === this.id,
+      onMe: mine,
+      by: event_.by,
+    })
+  }
+
+  private onWreckEvent(event: MessageEvent<string>) {
+    const event_ = readEvent(event.data)
+    if (!event_ || event_.t !== 'wreck') return
+    const mine = event_.target === this.id
+    if (mine) {
+      this.hp = 0
+      this.dead = true
+      this.onWrecked?.(event_.by)
+      return
+    }
+    const remote = this.players.get(event_.target)
+    if (remote) {
+      remote.dead = true
+      remote.hp = 0
+    }
+    this.onHit?.({ target: event_.target, hp: 0, wrecked: true, byMe: event_.by === this.id, onMe: false, by: event_.by })
   }
 
   close() {

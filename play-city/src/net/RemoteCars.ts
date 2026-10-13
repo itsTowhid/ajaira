@@ -7,9 +7,9 @@ import {
 import { createVehicle, profileFor, type Vehicle } from '../car/vehicle'
 import { CULL_DISTANCE, INTERP_DELAY_MS, MAX_EXTRAPOLATE_MS, MAX_REMOTE_CARS } from './protocol'
 import { NameTags } from './NameTags'
+import type { TargetCollider } from '../combat/Bullets'
 import type { RemoteState } from './Presence'
 import type { VehicleKind } from './protocol'
-import type { CircleCollider } from '../city/layout'
 
 /** Two seconds of history at 12 Hz. */
 const RING_SIZE = 24
@@ -48,7 +48,7 @@ interface Remote {
   steer: number
   roll: number
   pitch: number
-  collider: CircleCollider
+  collider: TargetCollider
   blip: { x: number; z: number; color: number }
   /** Latest pose, re-published for the name-tag layer each frame. */
   pose: { x: number; z: number; h: number }
@@ -123,7 +123,7 @@ function sampleAt(ring: Snapshot[], target: number): Sample | null {
 export class RemoteCars {
   readonly group = new THREE.Group()
   /** Solid to the local car: no `breakable`, no `trafficIndex`. */
-  readonly colliders: CircleCollider[] = []
+  readonly colliders: TargetCollider[] = []
   /** Minimap dots, one per rendered car. */
   readonly blips: { x: number; z: number; color: number }[] = []
 
@@ -138,22 +138,30 @@ export class RemoteCars {
   /**
    * Diffs the roster against what is on screen, so no join/leave bookkeeping is
    * needed. When the city is busier than `MAX_REMOTE_CARS` the nearest cars win.
+   * Dead (wrecked, mid-respawn) remotes are dropped like leaves — they have no
+   * pose to render anyway.
    */
   sync(roster: ReadonlyMap<string, RemoteState>, camera: THREE.Camera) {
-    let wanted: string[]
-    if (roster.size <= MAX_REMOTE_CARS) {
-      wanted = [...roster.keys()]
-    } else {
-      wanted = [...roster.values()]
-        .map((state) => ({
-          id: state.id,
-          d:
-            (state.x - camera.position.x) * (state.x - camera.position.x) +
-            (state.z - camera.position.z) * (state.z - camera.position.z),
-        }))
+    const wanted: string[] = []
+    for (const [id, state] of roster) {
+      if (state.dead) continue
+      wanted.push(id)
+    }
+    if (wanted.length > MAX_REMOTE_CARS) {
+      const byDistance = wanted
+        .map((id) => {
+          const state = roster.get(id)!
+          return {
+            id,
+            d:
+              (state.x - camera.position.x) * (state.x - camera.position.x) +
+              (state.z - camera.position.z) * (state.z - camera.position.z),
+          }
+        })
         .sort((a, b) => a.d - b.d)
         .slice(0, MAX_REMOTE_CARS)
-        .map((entry) => entry.id)
+      wanted.length = 0
+      for (const entry of byDistance) wanted.push(entry.id)
     }
 
     for (const [id, remote] of this.remotes) {
@@ -213,6 +221,7 @@ export class RemoteCars {
     this.blips.length = 0
 
     for (const [id, remote] of this.remotes.entries()) {
+      remote.vehicle.gun.update(dt)
       const state = sampleAt(remote.ring, target)
       if (!state) continue
 
@@ -278,6 +287,7 @@ export class RemoteCars {
     const profile = profileFor(state.kind)
     const vehicle = createVehicle(state.kind, state.color)
     const snap: Snapshot = { at: performance.now(), x: state.x, z: state.z, h: state.h, s: state.s }
+    const collider: TargetCollider = { x: state.x, z: state.z, r: profile.colliderRadius, remoteId: state.id }
     return {
       kind: state.kind,
       profile,
@@ -288,7 +298,7 @@ export class RemoteCars {
       steer: 0,
       roll: 0,
       pitch: 0,
-      collider: { x: state.x, z: state.z, r: profile.colliderRadius },
+      collider,
       blip: { x: state.x, z: state.z, color: state.color },
       pose: { x: state.x, z: state.z, h: state.h },
     }
@@ -307,5 +317,13 @@ export class RemoteCars {
     remote.steer = 0
     remote.roll = 0
     remote.pitch = 0
+  }
+
+  /**
+   * Light a remote gun's muzzle flash. `main` routes `shot` events here by the
+   * shooter's roster id; unknown ids (already despawned) are silently ignored.
+   */
+  flashAt(id: string) {
+    this.remotes.get(id)?.vehicle.gun.flashMuzzle()
   }
 }

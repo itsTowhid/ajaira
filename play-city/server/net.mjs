@@ -5,12 +5,15 @@
  * `node:http` import would break `tsc --noEmit`, and `allowJs` is off so this
  * file stays outside the TypeScript program.
  *
- * This module owns no world state. The city is generated from a fixed seed on
- * every client, so the server only has to relay each connection's id, colour
- * and pose. Endpoints:
+ * This module owns almost no world state. The city is generated from a fixed
+ * seed on every client, so the server only has to relay each connection's id,
+ * colour and pose. Combat is the one exception: hit points are server-owned so
+ * a victim's client cannot un-die itself. Endpoints:
  *
  *   GET  /api/stream?id=<uuid>&color=<0-7>&kind=<0-1>[&x&z&h]  opens the SSE stream, and *is* the session
  *   POST /api/state?id=<uuid>  body {x, z, h, s, kind}         -> 204
+ *   POST /api/fire?id=<uuid>   body {x, z, h, kind}            -> 204, everyone else gets `shot`
+ *   POST /api/hit?id=<uuid>    body {target, damage}           -> 204, everyone gets `hit`/`wreck`
  *
  * NOTE: this file does not hot-reload. The middleware is installed once when the
  * Vite server boots, so restart `pnpm dev` after editing it.
@@ -31,6 +34,14 @@ const COLOUR_COUNT = 8
 // Keep in sync with VEHICLE_CODE in src/net/protocol.ts (car = 0, bike = 1).
 const VEHICLE_CODES = [0, 1]
 const ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/
+
+// Combat bounds. MAX_DAMAGE/MAX_FIRE_RATE mirror MAX_DAMAGE/MAX_FIRE_RATE in
+// src/net/protocol.ts; the server is the authority, the client is a hint.
+const MAX_HP = 100
+const MAX_DAMAGE = 34
+const MAX_FIRE_RATE = 10
+// Immunity window after (re)spawn. The client blinks for the same duration.
+const SPAWN_PROTECT_MS = 3_000
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -116,6 +127,7 @@ function wirePlayer(session) {
     z: session.z,
     h: session.h,
     s: session.s,
+    hp: session.hp,
   }
 }
 
@@ -169,13 +181,19 @@ function openStream(req, res, url) {
     kind: vehicleCode(url.searchParams.get('kind')),
     res,
     // The client sends its spawn on the URL so peers never see a car sitting at
-    // the origin for one tick before the first state POST lands.
-    x: number(url.searchParams.get('x'), POSITION_LIMIT) ?? 0,
-    z: number(url.searchParams.get('z'), POSITION_LIMIT) ?? 0,
-    h: angle(url.searchParams.get('h')) ?? 0,
+    // the origin for one tick before the first state POST lands. searchParams
+    // yields strings, so coerce before the number checks — before this fix the
+    // ?? 0 fallback zeroed every URL spawn.
+    x: number(Number(url.searchParams.get('x')), POSITION_LIMIT) ?? 0,
+    z: number(Number(url.searchParams.get('z')), POSITION_LIMIT) ?? 0,
+    h: angle(Number(url.searchParams.get('h'))) ?? 0,
     s: 0,
     dirty: false,
     lastSeen: Date.now(),
+    // Combat: every fresh connection arrives with a full tank.
+    hp: MAX_HP,
+    protectedUntil: 0,
+    fireTimes: [],
   }
   sessions.set(id, session)
 
@@ -238,6 +256,16 @@ async function acceptState(req, res, url) {
     return
   }
 
+  // A wrecked car stays wrecked until its owner posts a fresh pose — that
+  // first POST after a wreck *is* the respawn: full health and a fresh shield.
+  // Peers learn about it through a max-hp `hit`, which refills their HP bars.
+  const now = Date.now()
+  if (session.hp <= 0) {
+    session.hp = MAX_HP
+    session.protectedUntil = now + SPAWN_PROTECT_MS
+    broadcast('hit', { t: 'hit', target: session.id, hp: MAX_HP })
+  }
+
   const x = number(body.x, POSITION_LIMIT)
   const z = number(body.z, POSITION_LIMIT)
   const h = angle(body.h)
@@ -262,6 +290,108 @@ async function acceptState(req, res, url) {
   res.end()
 }
 
+/**
+ * Somebody pulled the trigger. The shot itself carries no damage — it exists so
+ * peers can render the tracer and muzzle flash. Damage goes through /api/hit,
+ * which the shooter's client calls only after its local bullet actually
+ * connects, so aiming stays honest.
+ */
+async function acceptFire(req, res, url) {
+  const id = readId(url)
+  const session = id ? sessions.get(id) : undefined
+  const body = await readJson(req)
+  if (!session) {
+    res.statusCode = id ? 409 : 400
+    res.end()
+    return
+  }
+  if (!body || typeof body !== 'object') {
+    res.statusCode = 400
+    res.end()
+    return
+  }
+
+  const x = number(body.x, POSITION_LIMIT)
+  const z = number(body.z, POSITION_LIMIT)
+  const h = angle(body.h)
+  if (x === null || z === null || h === null) {
+    res.statusCode = 400
+    res.end()
+    return
+  }
+
+  // Rate limit: keep a short window of fire timestamps per session. A wrecked
+  // player cannot shoot, so neither can a hostile client pretending to be one.
+  const now = Date.now()
+  session.fireTimes = session.fireTimes.filter((time) => now - time < 1000)
+  if (session.fireTimes.length >= MAX_FIRE_RATE || session.hp <= 0) {
+    res.statusCode = 429
+    res.end()
+    return
+  }
+  session.fireTimes.push(now)
+
+  broadcast('shot', { t: 'shot', id, x: round(x), z: round(z), h: round(h), kind: session.kind })
+
+  res.statusCode = 204
+  res.end()
+}
+
+/**
+ * The shooter's client reports a hit its bullet actually scored on the victim.
+ * The server applies the damage to its own hp copy and tells everybody,
+ * including the shooter, so every screen agrees on who is hurt and by how much.
+ * A wrecked victim stops moving on everyone's screen because its owner stops
+ * posting state; the server stops accepting state from a wrecked session too.
+ */
+async function acceptHit(req, res, url) {
+  const id = readId(url)
+  const session = id ? sessions.get(id) : undefined
+  const body = await readJson(req)
+  if (!session) {
+    res.statusCode = id ? 409 : 400
+    res.end()
+    return
+  }
+  if (!body || typeof body !== 'object') {
+    res.statusCode = 400
+    res.end()
+    return
+  }
+
+  const targetId = typeof body.target === 'string' ? body.target : ''
+  const target = sessions.get(targetId)
+  const damage = typeof body.damage === 'number' && Number.isFinite(body.damage) ? Math.round(body.damage) : 0
+  if (!target || target === session || damage <= 0 || damage > MAX_DAMAGE) {
+    res.statusCode = 400
+    res.end()
+    return
+  }
+  // A shooter still on spawn protection cannot open the fight.
+  if (session.protectedUntil > Date.now()) {
+    res.statusCode = 403
+    res.end()
+    return
+  }
+
+  const now = Date.now()
+  target.hp = Math.max(0, target.hp - damage)
+
+  // broadcast() reaches every stream, the victim included — a follow-up
+  // send() here would deliver every hit/wreck twice to the one car that
+  // cares most about it.
+  if (target.hp <= 0) {
+    target.protectedUntil = now + SPAWN_PROTECT_MS
+    target.fireTimes = []
+    broadcast('wreck', { t: 'wreck', target: target.id, by: session.id })
+  } else {
+    broadcast('hit', { t: 'hit', target: target.id, hp: target.hp, by: session.id })
+  }
+
+  res.statusCode = 204
+  res.end()
+}
+
 function handler(req, res, next) {
   let url
   try {
@@ -277,6 +407,14 @@ function handler(req, res, next) {
   }
   if (url.pathname === '/api/state' && req.method === 'POST') {
     void acceptState(req, res, url)
+    return
+  }
+  if (url.pathname === '/api/fire' && req.method === 'POST') {
+    void acceptFire(req, res, url)
+    return
+  }
+  if (url.pathname === '/api/hit' && req.method === 'POST') {
+    void acceptHit(req, res, url)
     return
   }
   next()

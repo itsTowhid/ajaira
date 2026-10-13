@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { VehicleKind } from '../net/protocol'
 import { BIKE_PROFILE, CAR_PROFILE, type VehicleProfile } from './tuning'
 import type { CarPose } from './CarPose'
+import { Gun } from './gun'
 import { ToyBike } from './ToyBike'
 import { ToyCar } from './ToyCar'
 
@@ -13,6 +14,8 @@ export interface Vehicle {
   readonly group: THREE.Group
   /** Drives wheel spin, so it must be the radius actually on screen. */
   readonly wheelRadius: number
+  /** The roof cannon. Every ride carries one; combat code is the only reader. */
+  readonly gun: Gun
   setPose(pose: CarPose): void
   dispose(): void
 }

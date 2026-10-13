@@ -5,14 +5,17 @@ import * as THREE from 'three'
  * small canvas so text stays crisp and needs no font/scene plumbing. A tag
  * rides above its vehicle, always faces the camera (sprites do), hides at
  * distance, and fades in the last stretch so pop-in is soft.
+ *
+ * Combat added a health bar under the name. HP changes are rare (a few times
+ * per duel, not per frame), so the canvas only redraws when the value moves.
  */
 
 const CANVAS_W = 256
-const CANVAS_H = 64
+const CANVAS_H = 88
 /** World-space height of the tag plane; width follows the text aspect. */
-const TAG_HEIGHT = 1.1
+const TAG_HEIGHT = 1.3
 /** Above the roof / rider's helmet. */
-const LIFT = 3.1
+const LIFT = 3.3
 /** Hide tags beyond this distance — dots on the minimap already say who's where. */
 const MAX_DISTANCE = 90
 const FADE_START = 60
@@ -20,7 +23,11 @@ const FADE_END = 85
 /** Draw distance above the camera far plane minus fog is irrelevant; tags live close. */
 const MAX_RENDER_DIST = 400
 
-function makeTexture(name: string, accent: string): THREE.CanvasTexture {
+const HP_W = 120
+const HP_H = 10
+const HP_Y = 64
+
+function makeTexture(name: string, accent: string, hp: number, maxHp: number): THREE.CanvasTexture {
   const canvas = document.createElement('canvas')
   canvas.width = CANVAS_W
   canvas.height = CANVAS_H
@@ -36,7 +43,7 @@ function makeTexture(name: string, accent: string): THREE.CanvasTexture {
   const width = Math.max(56, ctx.measureText(label).width + 28)
   const height = 44
   const x = (CANVAS_W - width) / 2
-  const y = (CANVAS_H - height) / 2
+  const y = 8
 
   // Pill with a tinted border matching the driver's paint.
   ctx.fillStyle = 'rgba(12, 16, 26, 0.72)'
@@ -56,7 +63,15 @@ function makeTexture(name: string, accent: string): THREE.CanvasTexture {
   ctx.fillStyle = '#f4f7ff'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText(label, CANVAS_W / 2, CANVAS_H / 2 + 1)
+  ctx.fillText(label, CANVAS_W / 2, y + height / 2 + 1)
+
+  // Health bar: dark well, colour-filled remainder. Green > amber > red.
+  const hpW = (CANVAS_W - HP_W) / 2
+  ctx.fillStyle = 'rgba(12, 16, 26, 0.72)'
+  ctx.fillRect(hpW - 2, HP_Y - 2, HP_W + 4, HP_H + 4)
+  const ratio = Math.max(0, Math.min(1, hp / maxHp))
+  ctx.fillStyle = ratio > 0.55 ? '#58b368' : ratio > 0.25 ? '#f5a623' : '#e8453c'
+  ctx.fillRect(hpW, HP_Y, Math.max(ratio > 0 ? 4 : 0, HP_W * ratio), HP_H)
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
@@ -67,32 +82,44 @@ interface Tag {
   sprite: THREE.Sprite
   material: THREE.SpriteMaterial
   distance: number
+  name: string
+  hp: number
 }
 
 export class NameTags {
   readonly group = new THREE.Group()
   private readonly tags = new Map<string, Tag>()
 
-  /** Diffs the roster: new drivers get a tag, gone drivers lose theirs. */
-  sync(roster: Iterable<{ id: string; name: string; color: number }>) {
+  /**
+   * Diffs the roster: new drivers get a tag, gone drivers lose theirs. The
+   * canvas redraws only when the name or hp actually changed.
+   */
+  sync(roster: Iterable<{ id: string; name: string; color: number; hp?: number }>) {
     const seen = new Set<string>()
     for (const player of roster) {
       if (!player.name) continue
       seen.add(player.id)
-      if (!this.tags.has(player.id)) {
-        const hex = `#${(player.color % 8 === 0 ? 0xf0f0f0 : PALETTE_FALLBACK(player.color)).toString(16).padStart(6, '0')}`
-        const material = new THREE.SpriteMaterial({
-          map: makeTexture(player.name, hex),
-          transparent: true,
-          depthTest: false,
-          depthWrite: false,
-        })
-        const sprite = new THREE.Sprite(material)
-        sprite.center.set(0.5, 0)
-        sprite.renderOrder = 20
-        this.group.add(sprite)
-        this.tags.set(player.id, { sprite, material, distance: 0 })
+      const hp = typeof player.hp === 'number' && Number.isFinite(player.hp) ? player.hp : 100
+      const existing = this.tags.get(player.id)
+      if (existing) {
+        if (existing.hp !== hp) {
+          existing.hp = hp
+          redraw(existing, player.color)
+        }
+        continue
       }
+      const hex = `#${(player.color % 8 === 0 ? 0xf0f0f0 : PALETTE_FALLBACK(player.color)).toString(16).padStart(6, '0')}`
+      const material = new THREE.SpriteMaterial({
+        map: makeTexture(player.name, hex, hp, 100),
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+      })
+      const sprite = new THREE.Sprite(material)
+      sprite.center.set(0.5, 0)
+      sprite.renderOrder = 20
+      this.group.add(sprite)
+      this.tags.set(player.id, { sprite, material, distance: 0, name: player.name, hp })
     }
     for (const [id, tag] of this.tags) {
       if (seen.has(id)) continue
@@ -138,6 +165,14 @@ export class NameTags {
   dispose() {
     for (const [id] of this.tags) this.drop(id)
   }
+}
+
+/** Redraw an existing tag's canvas in place after an hp change. */
+function redraw(tag: Tag, color: number) {
+  const hex = `#${(color % 8 === 0 ? 0xf0f0f0 : PALETTE_FALLBACK(color)).toString(16).padStart(6, '0')}`
+  tag.material.map?.dispose()
+  tag.material.map = makeTexture(tag.name, hex, tag.hp, 100)
+  tag.material.needsUpdate = true
 }
 
 /** Stand-in for PALETTE without importing three-dependent city code here. */

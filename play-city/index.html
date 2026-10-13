@@ -51,9 +51,10 @@
       <div id="hint" class="hint">
         <div><b>W A S D</b> / arrows — drive</div>
         <div><b>Space</b> — brake</div>
+        <div><b>F</b> — fire &nbsp;·&nbsp; bullets wreck other drivers</div>
         <div><b>Drag</b> — look around &nbsp;·&nbsp; <b>Wheel</b> — zoom</div>
         <div><b>C</b> — camera &nbsp;·&nbsp; <b>H</b> — hide help &nbsp;·&nbsp; <b>V</b> — car / bike</div>
-        <div class="hint__touch"><b>Touch</b> — on-screen pedals: steer left, gas right</div>
+        <div class="hint__touch"><b>Touch</b> — on-screen pedals + fire button</div>
         <div><b>multiplayer</b> — other drivers appear automatically</div>
       </div>
 
@@ -66,7 +67,16 @@
           <button type="button" class="ctl ctl--brake" id="ctl-brake" aria-label="brake">&#9632;</button>
           <button type="button" class="ctl ctl--rev" id="ctl-back" aria-label="reverse">&#9660;</button>
           <button type="button" class="ctl ctl--gas" id="ctl-gas" aria-label="accelerate">&#9650;</button>
+          <button type="button" class="ctl ctl--fire" id="ctl-fire" aria-label="fire">&#9788;</button>
         </div>
+      </div>
+
+      <div id="damage-flash" class="damage-flash"></div>
+
+      <div id="wrecked" class="wrecked wrecked--hidden">
+        <p class="wrecked__title">Wrecked!</p>
+        <p id="wrecked-by" class="wrecked__by"></p>
+        <p class="wrecked__count">back on the road in <span id="wrecked-count">3</span>s</p>
       </div>
 
       <div class="hud__bottom">
@@ -77,9 +87,16 @@
           <span id="vehicle" class="speedo__vehicle">car</span>
         </div>
         <div class="hud__right">
-          <div class="smashed">
-            <span id="smashed" class="smashed__value">0</span>
-            <span class="smashed__label">smashed</span>
+          <div class="vitals">
+            <div class="health">
+              <div id="health-bar" class="health__bar" style="width: 100%"></div>
+            </div>
+            <div class="score">
+              <span id="kills" class="score__value">0</span>
+              <span class="score__label">kills</span>
+              <span id="smashed" class="score__value score__value--muted">0</span>
+              <span class="score__label">smashed</span>
+            </div>
           </div>
           <canvas id="minimap" class="minimap" width="190" height="190"></canvas>
         </div>

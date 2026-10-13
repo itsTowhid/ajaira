@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { mat } from '../city/materials'
 import type { CarPose } from './CarPose'
+import { Gun } from './gun'
 
 export interface ToyCarOptions {
   colorIndex?: number
@@ -16,6 +17,7 @@ export class ToyCar {
   readonly body = new THREE.Group()
   readonly wheels: THREE.Mesh[] = []
   readonly frontWheels: THREE.Group[] = []
+  readonly gun: Gun
 
   constructor(options: ToyCarOptions = {}) {
     const { colorIndex = 0, scale = 1 } = options
@@ -78,6 +80,12 @@ export class ToyCar {
     }
 
     this.group.add(this.body)
+
+    // Roof cannon. Rides on the body so it leans and bobs with it; +Z is forward.
+    this.gun = new Gun()
+    this.gun.group.position.set(0, 2.05, -0.55)
+    this.body.add(this.gun.group)
+
     this.group.scale.setScalar(scale)
   }
 

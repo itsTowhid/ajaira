@@ -18,6 +18,12 @@ export class Hud {
   private readonly gearEl = document.querySelector<HTMLSpanElement>('#gear')!
   private readonly vehicleEl = document.querySelector<HTMLSpanElement>('#vehicle')!
   private readonly smashEl = document.querySelector<HTMLSpanElement>('#smashed')!
+  private readonly killsEl = document.querySelector<HTMLSpanElement>('#kills')!
+  private readonly healthEl = document.querySelector<HTMLDivElement>('#health-bar')!
+  private readonly flashEl = document.querySelector<HTMLDivElement>('#damage-flash')!
+  private readonly wreckedEl = document.querySelector<HTMLDivElement>('#wrecked')!
+  private readonly wreckedByEl = document.querySelector<HTMLParagraphElement>('#wrecked-by')!
+  private readonly wreckedCountEl = document.querySelector<HTMLSpanElement>('#wrecked-count')!
   private readonly hintEl = document.querySelector<HTMLDivElement>('#hint')!
   private readonly netEl = document.querySelector<HTMLSpanElement>('#net-value')!
   private readonly netDotEl = document.querySelector<HTMLSpanElement>('.net__dot')!
@@ -28,6 +34,10 @@ export class Hud {
   private blocks: { x: number; z: number; kind: string }[] = []
   private netStatus: NetStatus = 'connecting'
   private netCount = -1
+  private healthShown = -1
+  private killsShown = -1
+  private flashLeft = 0
+  private wreckCountdown: ReturnType<typeof setInterval> | null = null
 
   constructor(layout: CityLayout) {
     this.ctx = this.mapCanvas.getContext('2d')!
@@ -56,6 +66,10 @@ export class Hud {
     this.speedEl.textContent = String(Math.round(kmh)).padStart(3, '0')
     this.gearEl.textContent = gear
     this.smashEl.textContent = String(smashed)
+    if (this.flashLeft > 0) {
+      this.flashLeft -= 1 / 60
+      if (this.flashLeft <= 0) this.flashEl.style.opacity = '0'
+    }
     this.drawMap(position, heading, remotes)
   }
 
@@ -63,6 +77,52 @@ export class Hud {
   setVehicle(label: string) {
     if (this.vehicleEl.textContent === label) return
     this.vehicleEl.textContent = label
+  }
+
+  /** Health bar + colour steps; only touches the DOM when the number moves. */
+  setHealth(hp: number, maxHp: number) {
+    const ratio = Math.max(0, Math.min(1, hp / maxHp))
+    const percent = Math.round(ratio * 100)
+    if (percent === this.healthShown) return
+    this.healthShown = percent
+    this.healthEl.style.width = `${percent}%`
+    this.healthEl.style.background = ratio > 0.55 ? '#58b368' : ratio > 0.25 ? '#f5a623' : '#e8453c'
+  }
+
+  /** Red flash on taking a hit. */
+  damageFlash() {
+    this.flashLeft = 0.4
+    this.flashEl.style.opacity = '0.55'
+  }
+
+  setKills(kills: number) {
+    if (kills === this.killsShown) return
+    this.killsShown = kills
+    this.killsEl.textContent = String(kills)
+  }
+
+  /** Wrecked overlay with a live countdown; `name` is who did it (when known). */
+  showWrecked(name: string) {
+    this.wreckedByEl.textContent = name ? `taken out by ${name}` : 'someone took you out'
+    this.wreckedEl.classList.remove('wrecked--hidden')
+    let seconds = 3
+    this.wreckedCountEl.textContent = String(seconds)
+    this.wreckCountdown = setInterval(() => {
+      seconds -= 1
+      this.wreckedCountEl.textContent = String(Math.max(0, seconds))
+      if (seconds <= 0 && this.wreckCountdown) {
+        clearInterval(this.wreckCountdown)
+        this.wreckCountdown = null
+      }
+    }, 1000)
+  }
+
+  hideWrecked() {
+    if (this.wreckCountdown) {
+      clearInterval(this.wreckCountdown)
+      this.wreckCountdown = null
+    }
+    this.wreckedEl.classList.add('wrecked--hidden')
   }
 
   /** Multiplayer pill. `count` is everybody else, so "solo" is a count of zero. */

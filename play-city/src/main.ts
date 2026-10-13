@@ -10,9 +10,10 @@ import { ChaseCamera } from './ChaseCamera'
 import { Hud } from './Hud'
 import { Input } from './Input'
 import { mountGarage } from './garage'
+import { Bullets } from './combat/Bullets'
 import { Presence } from './net/Presence'
 import { RemoteCars } from './net/RemoteCars'
-import { otherVehicle, type VehicleKind } from './net/protocol'
+import { FIRE_RATE, MAX_HP, SPAWN_PROTECT_S, otherVehicle, type VehicleKind } from './net/protocol'
 
 const canvas = document.querySelector<HTMLCanvasElement>('#scene')!
 
@@ -73,12 +74,26 @@ let kind: VehicleKind = presence.kind
 let vehicle: Vehicle = createVehicle(kind, presence.color)
 scene.add(vehicle.group)
 scene.add(remoteCars.nameTags.group)
+
+/** Physics+pose owner for the current vehicle; rebuilt on mount and respawn. */
 let controller = new CarController(vehicle, presence.spawn, profileFor(kind))
 
 const chase = new ChaseCamera(camera)
 const input = new Input(canvas)
 const hud = new Hud(layout)
 hud.setVehicle(vehicleLabel(kind))
+hud.setHealth(presence.hp, MAX_HP)
+
+// Combat. Bullets live in the city like everything else; the respawn timer
+// gates driving, shooting, and pose announcements while a wreck is on screen.
+const bullets = new Bullets()
+scene.add(bullets.group)
+const targetColliders = remoteCars.colliders
+const muzzle = new THREE.Vector3()
+const ROF_MS = 1000 / FIRE_RATE
+let lastFireAt = Number.NEGATIVE_INFINITY
+let respawnAt = 0
+let kills = 0
 
 /**
  * Swap rides on the spot. The pose carries over so you do not teleport, but
@@ -96,6 +111,45 @@ function mountVehicle(next: VehicleKind) {
   hud.setVehicle(vehicleLabel(next))
 }
 
+/**
+ * Wreck flow: stop the car, show who did it, respawn on a fresh patch of road
+ * when the countdown ends. The very next announce POST tells the relay we are
+ * back, which refills everybody's copy of our health bar.
+ */
+presence.onWrecked = (by) => {
+  respawnAt = performance.now() + SPAWN_PROTECT_S * 1000
+  const killer = presence.players.get(by)
+  hud.showWrecked(killer?.name ?? '')
+}
+
+presence.onShot = (shot) => {
+  bullets.spawn(shot.x, shot.z, shot.h, false)
+  remoteCars.flashAt(shot.by)
+}
+
+presence.onHit = (feedback) => {
+  // We learn our own hp through the same broadcast that tells everyone else.
+  if (feedback.onMe && !feedback.wrecked) hud.damageFlash()
+  if (feedback.byMe && feedback.wrecked) kills += 1
+}
+
+/** Back on the road: fresh spawn, full tank, gone overlay. */
+function respawn() {
+  const at = presence.respawn()
+  controller = new CarController(vehicle, at, profileFor(kind))
+  hud.hideWrecked()
+  hud.setHealth(presence.hp, MAX_HP)
+}
+
+/** Multiplayer is a bonus, never a dependency: a missing server must never break the game. */
+function net(action: () => void) {
+  try {
+    action()
+  } catch (error) {
+    console.warn('multiplayer hiccup', error)
+  }
+}
+
 const clock = new THREE.Clock()
 const sunOffset = new THREE.Vector3(70, 110, 50)
 
@@ -108,51 +162,78 @@ function resize() {
 }
 window.addEventListener('resize', resize)
 
-/** Multiplayer is a bonus, never a dependency: a missing server must never break the game. */
-function net(action: () => void) {
-  try {
-    action()
-  } catch (error) {
-    console.warn('multiplayer hiccup', error)
-  }
-}
-
 function frame() {
   const dt = clock.getDelta()
+  const dead = presence.dead
 
   const state = input.poll()
   // Remote cars first, so their colliders are current for this frame's physics.
   net(() => remoteCars.sync(presence.players, camera))
   net(() => remoteCars.update(dt, camera))
-  controller.update(dt, state, layout.colliders, [
-    ...staticCircles,
-    ...traffic.colliders,
-    ...remoteCars.colliders,
-  ])
+
+  // Trigger. The relay relays; bullets here are the visual truth, and only
+  // `mine` bullets report hits the server will honour.
+  if (state.fire && !dead && performance.now() - lastFireAt >= ROF_MS) {
+    lastFireAt = performance.now()
+    vehicle.gun.muzzle(muzzle)
+    bullets.spawn(muzzle.x, muzzle.z, controller.heading, true)
+    vehicle.gun.flashMuzzle()
+    net(() => presence.fire(muzzle.x, muzzle.z, controller.heading))
+  }
+
+  if (!dead) {
+    controller.update(dt, state, layout.colliders, [
+      ...staticCircles,
+      ...traffic.colliders,
+      ...targetColliders,
+    ])
+  }
 
   traffic.update(dt, controller.position.x, controller.position.z, controller.speed)
   breakables.update(dt)
+  vehicle.gun.update(dt)
 
-  if (controller.breakableHits.size > 0) {
-    const pushX = Math.sin(controller.heading) * controller.speed * 0.45
-    const pushZ = Math.cos(controller.heading) * controller.speed * 0.45
-    for (const id of controller.breakableHits) {
-      const spec = layout.breakables[id]
-      if (spec) breakables.break(spec, controller.position.x, controller.position.z, pushX, pushZ)
+  const bulletHits = bullets.update(
+    dt,
+    layout.colliders,
+    [...staticCircles, ...traffic.colliders],
+    targetColliders,
+    dead ? null : { x: controller.position.x, z: controller.position.z, r: 1.7 },
+  )
+  for (const hit of bulletHits) {
+    if (!hit.mine) continue
+    if (hit.remoteId) presence.claimHit(hit.remoteId, 10)
+    if (hit.breakable !== null) {
+      const spec = layout.breakables[hit.breakable]
+      if (spec) breakables.break(spec, hit.x, hit.z, Math.sin(hit.h) * 6, Math.cos(hit.h) * 6)
+    }
+    if (hit.trafficIndex !== null) traffic.knock(hit.trafficIndex, Math.sin(hit.h) * 6, Math.cos(hit.h) * 6)
+  }
+
+  if (!dead) {
+    if (controller.breakableHits.size > 0) {
+      const pushX = Math.sin(controller.heading) * controller.speed * 0.45
+      const pushZ = Math.cos(controller.heading) * controller.speed * 0.45
+      for (const id of controller.breakableHits) {
+        const spec = layout.breakables[id]
+        if (spec) breakables.break(spec, controller.position.x, controller.position.z, pushX, pushZ)
+      }
+    }
+
+    for (const index of controller.trafficHits) {
+      traffic.knock(
+        index,
+        Math.sin(controller.heading) * controller.speed * 0.7,
+        Math.cos(controller.heading) * controller.speed * 0.7,
+      )
     }
   }
 
-  for (const index of controller.trafficHits) {
-    traffic.knock(
-      index,
-      Math.sin(controller.heading) * controller.speed * 0.7,
-      Math.cos(controller.heading) * controller.speed * 0.7,
-    )
-  }
+  if (dead && performance.now() >= respawnAt) respawn()
 
   if (input.consumeCameraToggle()) chase.cycleMode()
   if (input.consumeHelpToggle()) hud.toggleHint()
-  if (input.consumeVehicleToggle()) mountVehicle(otherVehicle(kind))
+  if (input.consumeVehicleToggle() && !dead) mountVehicle(otherVehicle(kind))
 
   chase.update(
     dt,
@@ -175,6 +256,8 @@ function frame() {
     breakables.smashed,
     remoteCars.blips,
   )
+  hud.setHealth(presence.hp, MAX_HP)
+  hud.setKills(kills)
   net(() => presence.announce(controller.telemetry))
   net(() => hud.setNet(presence.status, presence.players.size))
 

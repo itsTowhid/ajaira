@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { mat } from '../city/materials'
 import type { CarPose } from './CarPose'
+import { Gun } from './gun'
 
 export interface ToyBikeOptions {
   colorIndex?: number
@@ -18,6 +19,7 @@ export class ToyBike {
   readonly group = new THREE.Group()
   readonly wheels: THREE.Mesh[] = []
   readonly frontWheels: THREE.Group[] = []
+  readonly gun: Gun
 
   private readonly lean = new THREE.Group()
   private readonly body = new THREE.Group()
@@ -81,6 +83,12 @@ export class ToyBike {
 
     this.lean.add(this.body)
     this.group.add(this.lean)
+
+    // Cannon on a tail pylon, behind the rider: on the centre line mid-bike it
+    // would be hidden behind the rider's silhouette from the chase camera.
+    this.gun = new Gun()
+    this.gun.group.position.set(0, 1.62, -0.75)
+    this.lean.add(this.gun.group)
   }
 
   /** The single visual path, same contract as `ToyCar.setPose`. */
