@@ -30,8 +30,8 @@ const POSITION_LIMIT = 1000000
 // Above MAX_SPEED (83.3) and MAX_REVERSE (25) in src/car/tuning.ts.
 const SPEED_LIMIT = 100
 const COLOUR_COUNT = 8
-// Keep in sync with VEHICLE_CODE in src/net/protocol.ts (car = 0, bike = 1).
-const VEHICLE_CODES = [0, 1]
+// Keep in sync with VEHICLE_CODE in src/net/protocol.ts (car = 0, bike = 1, plane = 2).
+const VEHICLE_CODES = [0, 1, 2]
 const ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/
 
 // Combat bounds. MAX_DAMAGE/MAX_FIRE_RATE mirror MAX_DAMAGE/MAX_FIRE_RATE in

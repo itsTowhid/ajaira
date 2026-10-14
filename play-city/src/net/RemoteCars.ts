@@ -1,9 +1,11 @@
 import * as THREE from 'three'
 import {
+  PLANE_FLIGHT,
   POSE_RATE,
   steerLimitFor,
   type VehicleProfile,
 } from '../car/tuning'
+import { heightAt as terrainHeightAt } from '../world/terrain'
 import { createVehicle, profileFor, type Vehicle } from '../car/vehicle'
 import { CULL_DISTANCE, INTERP_DELAY_MS, MAX_EXTRAPOLATE_MS, MAX_REMOTE_CARS } from './protocol'
 import { NameTags } from './NameTags'
@@ -250,6 +252,7 @@ export class RemoteCars {
 
       remote.vehicle.setPose({
         x: state.x,
+        y: remote.kind === 'plane' ? terrainHeightAt(state.x, state.z) + PLANE_FLIGHT.cruise : undefined,
         z: state.z,
         heading: state.h,
         roll: remote.roll,
@@ -272,7 +275,8 @@ export class RemoteCars {
       this.blips.push(remote.blip)
 
       if (remote.vehicle.group.visible) {
-        this.nameTags.place(id, state.x, 0, state.z, camera)
+        const tagY = remote.kind === 'plane' ? terrainHeightAt(state.x, state.z) + PLANE_FLIGHT.cruise : 0
+        this.nameTags.place(id, state.x, tagY, state.z, camera)
       }
 
       const dx = state.x - camera.position.x

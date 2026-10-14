@@ -40,6 +40,11 @@ export class CarController {
   private vy = 0
   private airborne = false
   groundY = 0
+  /** > 0 enables aeroplane cruise: the vehicle holds this altitude above groundY. */
+  cruiseAltitude = 0
+  /** Vertical speed while cruising, m/s (from PLANE_FLIGHT.climbRate in practice). */
+  climbRate = 12
+  private climbPitch = 0
   /** Terrain tilt sampled in main.ts: pitch positive = nose down. */
   slopePitch = 0
   /** Terrain tilt sampled in main.ts: roll positive = right side up. */
@@ -115,22 +120,37 @@ export class CarController {
     this.resolveCollisions(boxes, circles, forward)
 
     // Vertical: ride ramps via groundY, fall when the ground drops away.
-    if (!this.airborne) {
-      if (this.groundY >= this.y - 0.05) {
-        this.y = this.groundY
-      } else {
-        this.airborne = true
-        this.vy = 0
+    // Cruising planes replace this whole block: they ease toward groundY +
+    // cruiseAltitude and never go airborne.
+    if (this.cruiseAltitude > 0) {
+      const target = this.groundY + this.cruiseAltitude
+      const maxStep = this.climbRate * step
+      const delta = target - this.y
+      const moved = Math.max(-maxStep, Math.min(maxStep, delta))
+      this.y += moved
+      this.airborne = false
+      this.vy = 0
+      const verticalVelocity = step > 0 ? moved / step : 0
+      const targetClimb = Math.max(-0.22, Math.min(0.22, -verticalVelocity * 0.04))
+      this.climbPitch += (targetClimb - this.climbPitch) * Math.min(1, POSE_RATE * step)
+    } else {
+      if (!this.airborne) {
+        if (this.groundY >= this.y - 0.05) {
+          this.y = this.groundY
+        } else {
+          this.airborne = true
+          this.vy = 0
+        }
       }
-    }
-    if (this.airborne) {
-      this.y += this.vy * step
-      this.vy -= 22 * step
-      if (this.y <= this.groundY && this.vy < 0) {
-        this.y = this.groundY
-        this.vy = 0
-        this.airborne = false
-        this.speed *= 0.94
+      if (this.airborne) {
+        this.y += this.vy * step
+        this.vy -= 22 * step
+        if (this.y <= this.groundY && this.vy < 0) {
+          this.y = this.groundY
+          this.vy = 0
+          this.airborne = false
+          this.speed *= 0.94
+        }
       }
     }
 
@@ -151,7 +171,7 @@ export class CarController {
       z: this.position.z,
       heading: this.heading,
       roll: this.roll + this.slopeRoll,
-      pitch: this.pitch + this.slopePitch,
+      pitch: this.pitch + this.slopePitch + (this.cruiseAltitude > 0 ? this.climbPitch : 0),
       bobY: Math.sin(this.bobTime) * this.profile.bobAmplitude * (0.3 + speedRatio),
       steer: this.steerAngle,
       wheel: this.wheelAngle,

@@ -43,9 +43,9 @@ export type NetStatus = 'connecting' | 'online' | 'offline'
  * What the player is riding. Kept out of the wire types because
  * `server/net.mjs` cannot import this file — it validates against plain numbers.
  */
-export type VehicleKind = 'car' | 'bike'
+export type VehicleKind = 'car' | 'bike' | 'plane'
 
-export const VEHICLE_CODE: Record<VehicleKind, number> = { car: 0, bike: 1 }
+export const VEHICLE_CODE: Record<VehicleKind, number> = { car: 0, bike: 1, plane: 2 }
 
 export function vehicleCode(kind: VehicleKind): number {
   return VEHICLE_CODE[kind]
@@ -53,11 +53,13 @@ export function vehicleCode(kind: VehicleKind): number {
 
 /** Anything unrecognised falls back to a car, which is always a safe render. */
 export function vehicleKind(code: unknown): VehicleKind {
-  return code === 1 ? 'bike' : 'car'
+  return code === 1 ? 'bike' : code === 2 ? 'plane' : 'car'
 }
 
+const NEXT_VEHICLE: Record<VehicleKind, VehicleKind> = { car: 'bike', bike: 'plane', plane: 'car' }
+
 export function otherVehicle(kind: VehicleKind): VehicleKind {
-  return kind === 'bike' ? 'car' : 'bike'
+  return NEXT_VEHICLE[kind] ?? 'car'
 }
 
 /** Broadcast period. Keep in sync with TICK_MS in server/net.mjs. */

@@ -29,7 +29,7 @@ function load(): PlayerProfile & { colorIndex: number } {
     const parsed = JSON.parse(raw) as Partial<PlayerProfile>
     return {
       name: typeof parsed.name === 'string' ? parsed.name.slice(0, NAME_MAX) : '',
-      kind: parsed.kind === 'bike' ? 'bike' : 'car',
+      kind: parsed.kind === 'bike' ? 'bike' : parsed.kind === 'plane' ? 'plane' : 'car',
       colorIndex:
         typeof parsed.colorIndex === 'number' && Number.isInteger(parsed.colorIndex)
           ? Math.max(-1, Math.min(PALETTE.cars.length - 1, parsed.colorIndex))
@@ -117,7 +117,8 @@ export function mountGarage(): Promise<GarageResult> {
   })
   for (const button of kindRow.querySelectorAll<HTMLButtonElement>('.garage__choice')) {
     button.addEventListener('click', () => {
-      kind = button.dataset.kind === 'bike' ? 'bike' : 'car'
+      kind =
+        button.dataset.kind === 'bike' ? 'bike' : button.dataset.kind === 'plane' ? 'plane' : 'car'
       paintKind()
     })
   }

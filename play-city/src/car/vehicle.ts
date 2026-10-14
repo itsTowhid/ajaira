@@ -1,10 +1,11 @@
 import * as THREE from 'three'
 import type { VehicleKind } from '../net/protocol'
-import { BIKE_PROFILE, CAR_PROFILE, type VehicleProfile } from './tuning'
+import { BIKE_PROFILE, CAR_PROFILE, PLANE_PROFILE, type VehicleProfile } from './tuning'
 import type { CarPose } from './CarPose'
 import { Gun } from './gun'
 import { ToyBike } from './ToyBike'
 import { ToyCar } from './ToyCar'
+import { ToyPlane } from './ToyPlane'
 
 /**
  * What a drivable thing has to be for `CarController` and `net/RemoteCars` to
@@ -20,16 +21,22 @@ export interface Vehicle {
   dispose(): void
 }
 
-export const VEHICLE_ORDER: readonly VehicleKind[] = ['car', 'bike']
+export const VEHICLE_ORDER: readonly VehicleKind[] = ['car', 'bike', 'plane']
 
 export function profileFor(kind: VehicleKind): VehicleProfile {
-  return kind === 'bike' ? BIKE_PROFILE : CAR_PROFILE
+  if (kind === 'bike') return BIKE_PROFILE
+  if (kind === 'plane') return PLANE_PROFILE
+  return CAR_PROFILE
 }
 
 export function createVehicle(kind: VehicleKind, colorIndex: number): Vehicle {
-  return kind === 'bike' ? new ToyBike({ colorIndex }) : new ToyCar({ colorIndex })
+  if (kind === 'bike') return new ToyBike({ colorIndex })
+  if (kind === 'plane') return new ToyPlane({ colorIndex })
+  return new ToyCar({ colorIndex })
 }
 
 export function vehicleLabel(kind: VehicleKind): string {
-  return kind === 'bike' ? 'bike' : 'car'
+  if (kind === 'bike') return 'bike'
+  if (kind === 'plane') return 'plane'
+  return 'car'
 }

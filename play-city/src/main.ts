@@ -3,6 +3,7 @@ import { PALETTE } from './city/materials'
 import { CountryWorld } from './world/CountryWorld'
 import { CarController } from './car/CarController'
 import { createVehicle, profileFor, vehicleLabel, type Vehicle } from './car/vehicle'
+import { PLANE_FLIGHT } from './car/tuning'
 import { ChaseCamera } from './ChaseCamera'
 import { Hud } from './Hud'
 import { Input } from './Input'
@@ -109,6 +110,8 @@ scene.add(remoteCars.nameTags.group)
 
 /** Physics+pose owner for the current vehicle; rebuilt on mount and respawn. */
 let controller = new CarController(vehicle, presence.spawn, profileFor(kind))
+controller.cruiseAltitude = kind === 'plane' ? PLANE_FLIGHT.cruise : 0
+if (kind === 'plane') controller.climbRate = PLANE_FLIGHT.climbRate
 
 const chase = new ChaseCamera(camera)
 const input = new Input(canvas)
@@ -139,6 +142,8 @@ function mountVehicle(next: VehicleKind) {
   vehicle = createVehicle(next, presence.color)
   scene.add(vehicle.group)
   controller = new CarController(vehicle, at, profileFor(next))
+  controller.cruiseAltitude = next === 'plane' ? PLANE_FLIGHT.cruise : 0
+  if (next === 'plane') controller.climbRate = PLANE_FLIGHT.climbRate
   kind = next
   presence.setKind(next)
   hud.setVehicle(vehicleLabel(next))
@@ -158,7 +163,8 @@ presence.onWrecked = (by) => {
 }
 
 presence.onShot = (shot) => {
-  bullets.spawn(shot.x, shot.z, shot.h, false, world.heightAt(shot.x, shot.z) + 1.25)
+  const lift = shot.kind === 'plane' ? PLANE_FLIGHT.cruise : 0
+  bullets.spawn(shot.x, shot.z, shot.h, false, world.heightAt(shot.x, shot.z) + lift + 1.25)
   remoteCars.flashAt(shot.by)
 }
 
@@ -179,6 +185,8 @@ presence.onHit = (feedback) => {
 function respawn() {
   const at = presence.respawn()
   controller = new CarController(vehicle, at, profileFor(kind))
+  controller.cruiseAltitude = kind === 'plane' ? PLANE_FLIGHT.cruise : 0
+  if (kind === 'plane') controller.climbRate = PLANE_FLIGHT.climbRate
   hud.hideWrecked()
   hud.setHealth(presence.hp, MAX_HP)
 }
@@ -236,25 +244,28 @@ function frame() {
     // (ramp meshes sit on the terrain, so physics must too).
     const tY = world.heightAt(controller.position.x, controller.position.z)
     controller.groundY = tY
-    for (const ramp of world.ramps) {
-      const along =
-        ramp.axis === 'x' ? controller.position.x - ramp.x : controller.position.z - ramp.z
-      const across =
-        ramp.axis === 'x' ? controller.position.z - ramp.z : controller.position.x - ramp.x
-      if (Math.abs(across) > 3.5) continue
-      const signed = along * ramp.dir
-      // ~1m past the lip stays "on ramp" so a fast frame step still lands on
-      // progress >= 1 instead of tunnelling from ramp to dirt between frames.
-      if (signed < -5.5 || signed > 6.5) continue
-      // Only when travelling the intended way up the wedge.
-      const f =
-        ramp.axis === 'x' ? Math.sin(controller.heading) : Math.cos(controller.heading)
-      if (Math.sign(f) !== ramp.dir) continue
-      const progress = (signed + 5.5) / 11
-      const height = 2.4 * Math.min(1, Math.max(0, progress))
-      controller.groundY = Math.max(controller.groundY, tY + height)
-      if (progress >= 1 && !controller.isAirborne && Math.abs(controller.speed) > 4) {
-        controller.launch(Math.min(26, Math.max(9, controller.speed * 0.5)))
+    // Planes cruise above the ramps, so they skip the launch loop entirely.
+    if (kind !== 'plane') {
+      for (const ramp of world.ramps) {
+        const along =
+          ramp.axis === 'x' ? controller.position.x - ramp.x : controller.position.z - ramp.z
+        const across =
+          ramp.axis === 'x' ? controller.position.z - ramp.z : controller.position.x - ramp.x
+        if (Math.abs(across) > 3.5) continue
+        const signed = along * ramp.dir
+        // ~1m past the lip stays "on ramp" so a fast frame step still lands on
+        // progress >= 1 instead of tunnelling from ramp to dirt between frames.
+        if (signed < -5.5 || signed > 6.5) continue
+        // Only when travelling the intended way up the wedge.
+        const f =
+          ramp.axis === 'x' ? Math.sin(controller.heading) : Math.cos(controller.heading)
+        if (Math.sign(f) !== ramp.dir) continue
+        const progress = (signed + 5.5) / 11
+        const height = 2.4 * Math.min(1, Math.max(0, progress))
+        controller.groundY = Math.max(controller.groundY, tY + height)
+        if (progress >= 1 && !controller.isAirborne && Math.abs(controller.speed) > 4) {
+          controller.launch(Math.min(26, Math.max(9, controller.speed * 0.5)))
+        }
       }
     }
     controller.update(dt, state, boxes, [...circles, ...targetColliders])

@@ -23,7 +23,7 @@ export function readProfile(): PlayerProfile {
     const parsed = JSON.parse(raw) as Partial<PlayerProfile>
     return {
       name: typeof parsed.name === 'string' ? parsed.name.slice(0, 16) : '',
-      kind: parsed.kind === 'bike' ? 'bike' : 'car',
+      kind: parsed.kind === 'bike' ? 'bike' : parsed.kind === 'plane' ? 'plane' : 'car',
       colorIndex:
         typeof parsed.colorIndex === 'number' && Number.isInteger(parsed.colorIndex)
           ? Math.max(-1, Math.min(7, parsed.colorIndex))

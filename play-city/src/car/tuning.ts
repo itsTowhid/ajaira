@@ -71,6 +71,32 @@ export const BIKE_PROFILE: VehicleProfile = {
   bobAmplitude: 0.007,
 }
 
+/**
+ * A fast, wide-turning flyer. Banks (`leanPerSteer`) instead of leaning, and
+ * cruises above the terrain — see PLANE_FLIGHT and `cruiseAltitude` on
+ * `CarController`.
+ */
+export const PLANE_PROFILE: VehicleProfile = {
+  maxSpeed: 92,
+  maxReverse: 8,
+  acceleration: 48,
+  coastDrag: 3.5,
+  idleDrag: 2,
+  maxSteer: 0.5,
+  steerRate: 3.0,
+  turnDivisor: 9,
+  steerFalloff: 0.35,
+  bodyHalfWidth: 1.3,
+  colliderRadius: 1.8,
+  leanPerSteer: 0.55,
+  pitchFromAccel: 0.006,
+  maxPitch: 0.07,
+  bobAmplitude: 0.01,
+}
+
+/** Plane cruise band. Altitude above terrain, and climb speed, m/s. */
+export const PLANE_FLIGHT = { cruise: 8, climbRate: 12 } as const
+
 export function steerLimitFor(speedRatio: number, profile: VehicleProfile): number {
   return profile.maxSteer * (1 - profile.steerFalloff * speedRatio)
 }
