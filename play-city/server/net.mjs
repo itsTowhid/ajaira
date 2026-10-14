@@ -391,6 +391,185 @@ async function acceptHit(req, res, url) {
   res.end()
 }
 
+/* --- Map relay (OpenStreetMap) ------------------------------------------- */
+// Nominatim needs a User-Agent; Overpass mirrors do too. Server-side so fine.
+const MAP_UA = 'play-city-relay/1.0 (ajaira.bhaai.site)'
+const MAP_CACHE_MAX = 200
+const MAP_CACHE_TTL_MS = 10 * 60 * 1000
+const OVERPASS_MIRRORS = [
+  'https://overpass.osm.jp/api/interpreter',
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+]
+const OVERPASS_TIMEOUT_MS = 30_000
+const OVERPASS_MAX_BYTES = 12 * 1024 * 1024
+
+const geocodeCache = new Map()
+const placeCache = new Map()
+
+function mapCacheGet(cache, key) {
+  const entry = cache.get(key)
+  if (!entry) return null
+  if (Date.now() > entry.expires) {
+    cache.delete(key)
+    return null
+  }
+  return entry.data
+}
+
+function mapCacheSet(cache, key, data) {
+  if (cache.size >= MAP_CACHE_MAX) {
+    const oldest = cache.keys().next().value
+    if (oldest !== undefined) cache.delete(oldest)
+  }
+  cache.set(key, { data, expires: Date.now() + MAP_CACHE_TTL_MS })
+}
+
+function sendJson(res, status, value) {
+  res.statusCode = status
+  res.setHeader('Content-Type', 'application/json')
+  res.end(JSON.stringify(value))
+}
+
+async function handleGeocode(req, res, url) {
+  const q = (url.searchParams.get('q') ?? '').trim()
+  if (!q || q.length < 3) {
+    sendJson(res, 400, { error: 'missing q' })
+    return
+  }
+  const key = q.toLowerCase()
+  const cached = mapCacheGet(geocodeCache, key)
+  if (cached) {
+    sendJson(res, 200, cached)
+    return
+  }
+  try {
+    const upstream = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5`,
+      { headers: { 'User-Agent': MAP_UA, Accept: 'application/json' } },
+    )
+    if (!upstream.ok) throw new Error(`nominatim ${upstream.status}`)
+    const items = await upstream.json()
+    if (!Array.isArray(items)) throw new Error('nominatim bad shape')
+    const results = items.slice(0, 5).map((item) => {
+      const bb = Array.isArray(item.boundingbox) ? item.boundingbox : []
+      return {
+        id: `${String(item.osm_type ?? 'X').slice(0, 1).toUpperCase()}${item.osm_id}`,
+        name: String(item.display_name ?? ''),
+        lat: Number(item.lat),
+        lon: Number(item.lon),
+        bbox: { s: Number(bb[0]), n: Number(bb[1]), w: Number(bb[2]), e: Number(bb[3]) },
+      }
+    })
+    const payload = { results }
+    mapCacheSet(geocodeCache, key, payload)
+    sendJson(res, 200, payload)
+  } catch {
+    sendJson(res, 502, { error: 'geocode failed' })
+  }
+}
+
+function parseBboxParam(raw) {
+  if (typeof raw !== 'string') return null
+  const parts = raw.split(',').map(Number)
+  if (parts.length !== 4 || !parts.every(Number.isFinite)) return null
+  const [s, w, n, e] = parts
+  return { s, w, n, e }
+}
+
+function trimPlaceElement(el) {
+  if (!el || typeof el !== 'object') return null
+  const type = el.type
+  const id = el.id
+  if ((type !== 'node' && type !== 'way' && type !== 'relation') || typeof id !== 'number') return null
+  const out = { type, id }
+  if (Array.isArray(el.nodes)) out.nodes = el.nodes.filter((v) => typeof v === 'number')
+  if (typeof el.lat === 'number' && Number.isFinite(el.lat)) out.lat = el.lat
+  if (typeof el.lon === 'number' && Number.isFinite(el.lon)) out.lon = el.lon
+  if (Array.isArray(el.geometry)) {
+    out.geometry = el.geometry
+      .filter((p) => p && typeof p.lat === 'number' && typeof p.lon === 'number')
+      .map((p) => ({ lat: p.lat, lon: p.lon }))
+  }
+  const tags = el.tags && typeof el.tags === 'object' ? el.tags : {}
+  const kept = {}
+  if (typeof tags.highway === 'string') kept.highway = tags.highway
+  if (typeof tags.building === 'string') kept.building = tags.building
+  if (typeof tags.name === 'string') kept.name = tags.name
+  if (typeof tags.height === 'string') kept.height = tags.height
+  if (typeof tags.natural === 'string') kept.natural = tags.natural
+  out.tags = kept
+  return out
+}
+
+async function fetchOverpass(query) {
+  const body = `data=${encodeURIComponent(query)}`
+  for (const mirror of OVERPASS_MIRRORS) {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), OVERPASS_TIMEOUT_MS)
+    try {
+      const res = await fetch(mirror, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': MAP_UA,
+          Accept: 'application/json',
+        },
+        body,
+        signal: ctrl.signal,
+      })
+      if (!res.ok) continue
+      const text = await res.text()
+      if (text.length > OVERPASS_MAX_BYTES) continue
+      const json = JSON.parse(text)
+      if (json && Array.isArray(json.elements)) return json
+    } catch {
+      /* try the next mirror */
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  return null
+}
+
+async function handlePlace(req, res, url) {
+  const id = url.searchParams.get('id') ?? ''
+  if (!/^[NWR]\d+$/.test(id)) {
+    sendJson(res, 400, { error: 'bad id' })
+    return
+  }
+  const bbox = parseBboxParam(url.searchParams.get('bbox'))
+  if (!bbox || !(bbox.s < bbox.n) || !(bbox.w < bbox.e)) {
+    sendJson(res, 400, { error: 'bad bbox' })
+    return
+  }
+  if (bbox.n - bbox.s > 0.06 || bbox.e - bbox.w > 0.09) {
+    sendJson(res, 400, { error: 'bbox too large' })
+    return
+  }
+  const key = `${id}|${bbox.s},${bbox.w},${bbox.n},${bbox.e}`
+  const cached = mapCacheGet(placeCache, key)
+  if (cached) {
+    sendJson(res, 200, cached)
+    return
+  }
+  const { s, w, n, e } = bbox
+  const query = `[out:json][timeout:25];(way["highway"](${s},${w},${n},${e});way["building"](${s},${w},${n},${e});node["natural"="tree"](${s},${w},${n},${e}););out body;`
+  const json = await fetchOverpass(query)
+  if (!json) {
+    sendJson(res, 502, { error: 'overpass failed' })
+    return
+  }
+  const elements = []
+  for (const el of json.elements) {
+    const trimmed = trimPlaceElement(el)
+    if (trimmed) elements.push(trimmed)
+  }
+  const payload = { elements }
+  mapCacheSet(placeCache, key, payload)
+  sendJson(res, 200, payload)
+}
+
 function handler(req, res, next) {
   let url
   try {
@@ -414,6 +593,14 @@ function handler(req, res, next) {
   }
   if (url.pathname === '/api/hit' && req.method === 'POST') {
     void acceptHit(req, res, url)
+    return
+  }
+  if (url.pathname === '/api/map/geocode' && req.method === 'GET') {
+    void handleGeocode(req, res, url)
+    return
+  }
+  if (url.pathname === '/api/map/place' && req.method === 'GET') {
+    void handlePlace(req, res, url)
     return
   }
   next()

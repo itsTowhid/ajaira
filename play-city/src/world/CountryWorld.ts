@@ -65,6 +65,30 @@ export class CountryWorld {
     return terrainHeightAt(x, z)
   }
 
+  /**
+   * Removes the world and frees per-tile geometries. Shared module-level
+   * resources (GRASS_GEO, tile materials) are never disposed — only the
+   * per-tile instance buffers and owned geometries, deduped like a vehicle.
+   */
+  dispose(): void {
+    this.group.removeFromParent()
+    const geometries = new Set<THREE.BufferGeometry>()
+    for (const tile of this.tiles.values()) {
+      tile.group.traverse((obj) => {
+        if ((obj as THREE.InstancedMesh).isInstancedMesh) {
+          ;(obj as THREE.InstancedMesh).dispose()
+          return
+        }
+        const mesh = obj as THREE.Mesh
+        if (mesh.isMesh && mesh.geometry !== (GRASS_GEO as THREE.BufferGeometry)) {
+          geometries.add(mesh.geometry as THREE.BufferGeometry)
+        }
+      })
+    }
+    for (const geometry of geometries) geometry.dispose()
+    this.tiles.clear()
+  }
+
   update(dt: number): void {
     for (const tile of this.tiles.values()) {
       for (const spinner of tile.spinners) {

@@ -33,8 +33,23 @@
           <div class="garage__choices" id="garage-color"></div>
         </div>
 
+        <div class="garage__field">
+          <span>Map (optional)</span>
+          <div class="garage__maprow">
+            <input id="garage-map" type="text" maxlength="60" placeholder="search a place, e.g. Gulshan Dhaka" autocomplete="off" />
+            <button type="button" id="garage-map-search" class="garage__choice">Search</button>
+          </div>
+          <div class="garage__mapresults" id="garage-map-results"></div>
+        </div>
+
         <button type="button" id="garage-start" class="garage__start">Drive</button>
       </div>
+    </div>
+
+    <div id="mapbar" class="mapbar">
+      <input id="mapbar-input" type="text" maxlength="60" placeholder="search a place, e.g. Gulshan Dhaka" />
+      <button type="button" id="mapbar-go">Load</button>
+      <span id="mapbar-status"></span>
     </div>
 
     <div class="hud">

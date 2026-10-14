@@ -255,6 +255,123 @@ body {
   transform: scale(0.98);
 }
 
+.garage__maprow {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.garage__maprow input {
+  flex: 1;
+  min-width: 0;
+}
+
+.garage__mapresults {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.garage__mapresult {
+  padding: 0.5rem 0.7rem;
+  border-radius: 0.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(9, 11, 17, 0.7);
+  color: #f4f7ff;
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.garage__mapresult--active {
+  border-color: #ffd45e;
+  background: rgba(255, 212, 94, 0.16);
+  color: #ffd45e;
+}
+
+.garage__map-picked {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 0.6rem;
+  border: 1px solid rgba(255, 212, 94, 0.65);
+  background: rgba(255, 212, 94, 0.16);
+  color: #ffd45e;
+  font-size: 0.8rem;
+}
+
+.garage__map-clear {
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+/* --- Map bar (in-game place search) -------------------------------------- */
+
+.mapbar {
+  position: fixed;
+  top: 0.9rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.8rem;
+  background: rgba(12, 16, 26, 0.65);
+  backdrop-filter: blur(6px);
+  color: #f4f7ff;
+  font-size: 0.75rem;
+}
+
+.mapbar input {
+  width: min(280px, 44vw);
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(9, 11, 17, 0.7);
+  color: #f4f7ff;
+  font: inherit;
+  font-size: 0.75rem;
+  outline: none;
+}
+
+.mapbar input:focus {
+  border-color: rgba(255, 212, 94, 0.65);
+}
+
+.mapbar button {
+  padding: 0.4rem 0.8rem;
+  border-radius: 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 212, 94, 0.16);
+  color: #ffd45e;
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.mapbar button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.mapbar span {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.8;
+}
+
 .hint b {
   color: #ffd45e;
   font-weight: 600;

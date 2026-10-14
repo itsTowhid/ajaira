@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import { PALETTE } from './city/materials'
 import { CountryWorld } from './world/CountryWorld'
+import { MapWorld, parsePlaceResponse } from './world/MapWorld'
+import type { MapPlace } from './net/protocol'
 import { CarController } from './car/CarController'
 import { createVehicle, profileFor, vehicleLabel, type Vehicle } from './car/vehicle'
 import { PLANE_FLIGHT } from './car/tuning'
@@ -36,7 +38,7 @@ scene.fog = new THREE.Fog(PALETTE.fog, 220, 620)
 const camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.5, 1600)
 camera.position.set(0, 12, 80)
 
-const world = new CountryWorld()
+let world: CountryWorld | MapWorld = new CountryWorld()
 scene.add(world.group)
 
 const ground = new THREE.Mesh(
@@ -189,6 +191,86 @@ function respawn() {
   if (kind === 'plane') controller.climbRate = PLANE_FLIGHT.climbRate
   hud.hideWrecked()
   hud.setHealth(presence.hp, MAX_HP)
+}
+
+/**
+ * Map mode: fetch OSM data for a place and swap the live world. Country mode
+ * is the frozen backdrop until the load lands; `world.ensure`/`world.update`
+ * exist on both worlds and `world.ramps` is [] in map mode so the launch loop
+ * no-ops. Multiplayer note: peers each load their own place — shared sessions
+ * assume the same place. Nothing on the wire changes.
+ */
+function teleportToMapOrigin() {
+  // Same shape as respawn(), but pinned to the map origin instead of a
+  // random countryside spawn.
+  controller = new CarController(vehicle, { x: 0, z: 0, heading: 0 }, profileFor(kind))
+  controller.cruiseAltitude = kind === 'plane' ? PLANE_FLIGHT.cruise : 0
+  if (kind === 'plane') controller.climbRate = PLANE_FLIGHT.climbRate
+  hud.hideWrecked()
+}
+
+async function loadPlace(place: MapPlace, status: HTMLElement | null) {
+  if (status) status.textContent = `loading ${place.name}…`
+  try {
+    const { s, w, n, e } = place.bbox
+    const res = await fetch(`/api/map/place?id=${encodeURIComponent(place.id)}&bbox=${s},${w},${n},${e}`)
+    if (!res.ok) throw new Error(`place ${res.status}`)
+    const json = (await res.json()) as unknown
+    const parsed = parsePlaceResponse(json)
+    const next = new MapWorld(parsed)
+    scene.add(next.group)
+    world.dispose()
+    world = next
+    teleportToMapOrigin()
+    if (status) status.textContent = `${place.name} loaded`
+  } catch {
+    if (status) status.textContent = 'map load failed'
+  }
+}
+
+async function loadPlaceByName(query: string, status: HTMLElement | null) {
+  if (status) status.textContent = `loading ${query}…`
+  try {
+    const res = await fetch(`/api/map/geocode?q=${encodeURIComponent(query)}`)
+    if (!res.ok) throw new Error(`geocode ${res.status}`)
+    const json = (await res.json()) as { results?: MapPlace[] }
+    const first = Array.isArray(json.results) ? json.results[0] : undefined
+    if (!first) throw new Error('no results')
+    await loadPlace(first, status)
+  } catch {
+    if (status) status.textContent = 'map load failed'
+  }
+}
+
+function wireMapBar() {
+  const input = document.querySelector<HTMLInputElement>('#mapbar-input')
+  const go = document.querySelector<HTMLButtonElement>('#mapbar-go')
+  const status = document.querySelector<HTMLElement>('#mapbar-status')
+  if (!input || !go) return
+  const run = () => {
+    const q = input.value.trim()
+    if (q.length < 3 || go.disabled) return
+    go.disabled = true
+    void loadPlaceByName(q, status).finally(() => {
+      go.disabled = false
+    })
+  }
+  go.addEventListener('click', run)
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') run()
+    event.stopPropagation()
+  })
+}
+
+wireMapBar()
+// Boot selection: the country backdrop is already up; if the garage picked a
+// place (or the URL carries ?place=<name>), kick the same async map-load path
+// non-blocking. The URL query is genuinely a string — no Number() coercion.
+{
+  const urlPlace = new URLSearchParams(window.location.search).get('place')?.trim()
+  const status = document.querySelector<HTMLElement>('#mapbar-status')
+  if (urlPlace) void loadPlaceByName(urlPlace, status)
+  else if (profile.mapPlace) void loadPlace(profile.mapPlace, status)
 }
 
 /** Multiplayer is a bonus, never a dependency: a missing server must never break the game. */

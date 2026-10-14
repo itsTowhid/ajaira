@@ -46,7 +46,6 @@ export type NetStatus = 'connecting' | 'online' | 'offline'
 export type VehicleKind = 'car' | 'bike' | 'plane'
 
 export const VEHICLE_CODE: Record<VehicleKind, number> = { car: 0, bike: 1, plane: 2 }
-
 export function vehicleCode(kind: VehicleKind): number {
   return VEHICLE_CODE[kind]
 }
@@ -114,3 +113,17 @@ export const MAX_DAMAGE = 34
  * anyway; this is just a sanity bound on the wire value.
  */
 export const MIN_HP = 0
+
+/* --- Map mode ------------------------------------------------------------ */
+
+/** One Nominatim result, as relayed by `/api/map/geocode`. */
+export interface MapPlace {
+  id: string
+  name: string
+  lat: number
+  lon: number
+  bbox: { s: number; w: number; n: number; e: number }
+}
+
+/** Which world the game is driving in. Peers each load their own place. */
+export type WorldMode = 'country' | 'map'

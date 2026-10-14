@@ -1,6 +1,6 @@
 import { PALETTE } from './city/materials'
 import { readProfile, writeProfile, type PlayerProfile } from './net/Presence'
-import type { VehicleKind } from './net/protocol'
+import type { MapPlace, VehicleKind } from './net/protocol'
 
 /**
  * The starting screen. Collects a name, a ride and a paint job, saves them to
@@ -19,14 +19,30 @@ interface GarageResult {
   colorIndex: number
   /** False when the player skipped; the saved profile is left untouched then. */
   completed: boolean
+  /** Chosen OSM place, or null for the regular countryside. */
+  mapPlace: MapPlace | null
+}
+
+function isMapPlace(value: unknown): value is MapPlace {
+  if (!value || typeof value !== 'object') return false
+  const p = value as Record<string, unknown>
+  if (typeof p.id !== 'string' || !/^[NWR]\d+$/.test(p.id)) return false
+  if (typeof p.name !== 'string' || typeof p.lat !== 'number' || typeof p.lon !== 'number') return false
+  if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) return false
+  const bbox = p.bbox as Record<string, unknown> | undefined
+  if (!bbox || typeof bbox !== 'object') return false
+  const { s, w, n, e } = bbox
+  if (![s, w, n, e].every((v) => typeof v === 'number' && Number.isFinite(v))) return false
+  if (!((s as number) < (n as number) && (w as number) < (e as number))) return false
+  return true
 }
 
 /** The garage owns this shape, so it owns the storage key too. */
-function load(): PlayerProfile & { colorIndex: number } {
+function load(): PlayerProfile & { colorIndex: number; mapPlace: MapPlace | null } {
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY)
-    if (!raw) return { name: '', kind: 'car', colorIndex: -1 }
-    const parsed = JSON.parse(raw) as Partial<PlayerProfile>
+    if (!raw) return { name: '', kind: 'car', colorIndex: -1, mapPlace: null }
+    const parsed = JSON.parse(raw) as Partial<PlayerProfile> & { map?: unknown }
     return {
       name: typeof parsed.name === 'string' ? parsed.name.slice(0, NAME_MAX) : '',
       kind: parsed.kind === 'bike' ? 'bike' : parsed.kind === 'plane' ? 'plane' : 'car',
@@ -34,15 +50,22 @@ function load(): PlayerProfile & { colorIndex: number } {
         typeof parsed.colorIndex === 'number' && Number.isInteger(parsed.colorIndex)
           ? Math.max(-1, Math.min(PALETTE.cars.length - 1, parsed.colorIndex))
           : -1,
+      mapPlace: isMapPlace(parsed.map) ? parsed.map : null,
     }
   } catch {
-    return { name: '', kind: 'car', colorIndex: -1 }
+    return { name: '', kind: 'car', colorIndex: -1, mapPlace: null }
   }
 }
 
-function save(profile: PlayerProfile) {
+function save(profile: PlayerProfile & { mapPlace?: MapPlace | null }) {
   try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(profile))
+    const payload: PlayerProfile & { map?: MapPlace | null } = {
+      name: profile.name,
+      kind: profile.kind,
+      colorIndex: profile.colorIndex,
+    }
+    if (profile.mapPlace) payload.map = profile.mapPlace
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
   } catch {
     /* private mode: the game still runs, you just re-answer after a reload */
   }
@@ -58,6 +81,11 @@ export function mountGarage(): Promise<GarageResult> {
   const saved = load()
   let kind: VehicleKind = saved.kind
   let colorIndex: number = saved.colorIndex
+  let mapPlace: MapPlace | null = saved.mapPlace
+
+  const mapInput = document.querySelector<HTMLInputElement>('#garage-map')
+  const mapSearch = document.querySelector<HTMLButtonElement>('#garage-map-search')
+  const mapResults = document.querySelector<HTMLDivElement>('#garage-map-results')
 
   // One swatch per palette car colour, plus "surprise me" (-1 → random hash).
   const paintless = document.createElement('button')
@@ -97,8 +125,8 @@ export function mountGarage(): Promise<GarageResult> {
 
   const finish = (completed: boolean) => {
     const name = completed ? nameInput.value.trim().slice(0, NAME_MAX) : saved.name
-    const result: GarageResult = { name, kind, colorIndex, completed }
-    if (completed) save({ name, kind, colorIndex })
+    const result: GarageResult = { name, kind, colorIndex, completed, mapPlace: completed ? mapPlace : saved.mapPlace }
+    if (completed) save({ name, kind, colorIndex, mapPlace })
     root.classList.add('garage--hidden')
     window.setTimeout(() => root.remove(), 450)
     resolve(result)
@@ -128,6 +156,67 @@ export function mountGarage(): Promise<GarageResult> {
       paintSelection()
     })
   }
+  // Map search (optional): empty search + Drive keeps today's country mode.
+  // Picking a result stores it; "× clear" resets to null.
+  const shortName = (name: string): string => name.split(',').slice(0, 3).join(',').trim()
+  const paintMapResults = (results: MapPlace[]) => {
+    if (!mapResults) return
+    mapResults.textContent = ''
+    if (mapPlace) {
+      const picked = document.createElement('div')
+      picked.className = 'garage__map-picked'
+      picked.textContent = shortName(mapPlace.name)
+      const clear = document.createElement('button')
+      clear.type = 'button'
+      clear.className = 'garage__map-clear'
+      clear.textContent = '× clear'
+      clear.addEventListener('click', (event) => {
+        event.stopPropagation()
+        mapPlace = null
+        paintMapResults(results)
+      })
+      picked.appendChild(clear)
+      mapResults.appendChild(picked)
+    }
+    for (const place of results.slice(0, 5)) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'garage__mapresult'
+      if (mapPlace?.id === place.id) button.classList.add('garage__mapresult--active')
+      button.textContent = shortName(place.name)
+      button.title = place.name
+      button.addEventListener('click', () => {
+        mapPlace = place
+        paintMapResults(results)
+      })
+      mapResults.appendChild(button)
+    }
+  }
+  let lastResults: MapPlace[] = []
+  const runMapSearch = async () => {
+    if (!mapInput || !mapSearch || !mapResults) return
+    const q = mapInput.value.trim()
+    if (q.length < 3) return
+    mapSearch.disabled = true
+    try {
+      const res = await fetch(`/api/map/geocode?q=${encodeURIComponent(q)}`)
+      if (!res.ok) throw new Error(`geocode ${res.status}`)
+      const json = (await res.json()) as { results?: MapPlace[] }
+      lastResults = Array.isArray(json.results) ? json.results.slice(0, 5) : []
+      paintMapResults(lastResults)
+      if (lastResults.length === 0) mapResults.textContent = 'no places found'
+    } catch {
+      mapResults.textContent = 'search failed'
+    } finally {
+      mapSearch.disabled = false
+    }
+  }
+  if (mapPlace && mapResults) paintMapResults([])
+  mapSearch?.addEventListener('click', () => void runMapSearch())
+  mapInput?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') void runMapSearch()
+    event.stopPropagation()
+  })
   startButton.addEventListener('click', () => finish(true))
 
   return ready

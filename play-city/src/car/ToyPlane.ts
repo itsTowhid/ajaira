@@ -8,7 +8,7 @@ export interface ToyPlaneOptions {
   scale?: number
 }
 
-export const PROPELLER_RADIUS = 0.55
+export const PROPELLER_RADIUS = 0.48
 const WHEELBASE = 1.8
 const GEAR_RADIUS = 0.22
 
@@ -27,30 +27,30 @@ export class ToyPlane {
     const paint = mat.car(colorIndex)
 
     // Fuselage. Long box, +Z is forward.
-    const fuselage = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.2, 4.6), paint)
-    fuselage.position.y = 1.1
+    const fuselage = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.85, 4.8), paint)
+    fuselage.position.y = 0.95
     fuselage.castShadow = true
     this.body.add(fuselage)
 
     // Cockpit: glass canopy on top, slightly forward of centre.
-    const canopy = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 1.4), mat.glass())
-    canopy.position.set(0, 1.95, 0.5)
+    const canopy = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.42, 1.3), mat.glass())
+    canopy.position.set(0, 1.585, 0.5)
     canopy.castShadow = true
     this.body.add(canopy)
 
     // Main wing: wide thin box, low-mid fuselage.
-    const wing = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.14, 1.1), paint)
-    wing.position.set(0, 0.75, 0.3)
+    const wing = new THREE.Mesh(new THREE.BoxGeometry(4.9, 0.1, 0.95), paint)
+    wing.position.set(0, 0.55, 0.3)
     wing.castShadow = true
     this.body.add(wing)
 
     // Tail: smaller wing at the rear + a vertical fin.
-    const tail = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.12, 0.7), paint)
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.08, 0.55), paint)
     tail.position.set(0, 1.2, -2.0)
     tail.castShadow = true
     this.body.add(tail)
 
-    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.0, 0.9), paint)
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.85, 0.8), paint)
     fin.position.set(0, 1.9, -2.0)
     fin.castShadow = true
     this.body.add(fin)
@@ -59,8 +59,8 @@ export class ToyPlane {
     const gearGeometry = new THREE.CylinderGeometry(GEAR_RADIUS, GEAR_RADIUS, 0.16, 12)
     gearGeometry.rotateZ(Math.PI / 2)
     for (const [x, z] of [
-      [-1.1, 0.3],
-      [1.1, 0.3],
+      [-0.8, 0.3],
+      [0.8, 0.3],
       [0, -1.5],
     ] as [number, number][]) {
       const wheel = new THREE.Mesh(gearGeometry, mat.tyre())
@@ -70,12 +70,12 @@ export class ToyPlane {
 
     // Propeller: crossed thin blades on a hub at the nose. These are the
     // "wheels": setPose drives their rotation.z from pose.wheel.
-    this.prop.position.set(0, 1.1, 2.45)
+    this.prop.position.set(0, 0.95, 2.45)
     const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.24, 10), mat.metal())
     hub.rotation.x = Math.PI / 2
     this.prop.add(hub)
     for (const roll of [0, Math.PI / 2]) {
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.18, 2.2, 0.08), mat.tyre())
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1.9, 0.07), mat.tyre())
       blade.rotation.z = roll
       blade.castShadow = true
       this.prop.add(blade)
@@ -90,7 +90,7 @@ export class ToyPlane {
     // from the chase camera looking down the tail, and well clear of the prop
     // disc at the nose. +Z is forward.
     this.gun = new Gun()
-    this.gun.group.position.set(0, 1.78, 1.2)
+    this.gun.group.position.set(0, 1.5, 1.2)
     this.body.add(this.gun.group)
 
     this.group.scale.setScalar(scale)
